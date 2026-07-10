@@ -1,0 +1,172 @@
+@import url('https://fonts.googleapis.com/css2?family=Abhaya+Libre:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@font-face {
+  font-family: 'FMYaso';
+  src: url('/fonts/FMYASO.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'FMMalithi';
+  src: url('/fonts/FMMALITHI.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Space Grotesk", ui-monospace, monospace;
+}
+
+/* Custom CSS Keyframes for Subtitle Animations */
+
+/* 1. Apple Keynote Event Kinetic Style */
+@keyframes appleKeynote {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+.animate-apple-keynote {
+  animation: appleKeynote 0.08s ease-out forwards;
+}
+
+/* 2. Bounce Pop Style */
+@keyframes captionBounce {
+  0% {
+    transform: scale(0.3) translateY(30px);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.1) translateY(-10px);
+    opacity: 0.9;
+  }
+  70% {
+    transform: scale(0.95) translateY(3px);
+  }
+  100% {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+  }
+}
+.animate-caption-bounce {
+  animation: captionBounce 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+/* 3. Smooth Fade In Style */
+@keyframes captionFade {
+  0% { opacity: 0; transform: translateY(5px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.animate-caption-fade {
+  animation: captionFade 0.25s ease-out forwards;
+}
+
+/* 4. Scale Pop Style */
+@keyframes captionPop {
+  0% { transform: scale(0); opacity: 0; }
+  85% { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1); }
+}
+.animate-caption-pop {
+  animation: captionPop 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* 5. Slide Up Reveal Style */
+@keyframes captionSlide {
+  0% { transform: translateY(20px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+.animate-caption-slide {
+  animation: captionSlide 0.22s cubic-bezier(0.23, 1, 0.32, 1) forwards;
+}
+
+/* 6. Kinetic Zoom Focus Style */
+@keyframes captionZoom {
+  0% { transform: scale(1.8); filter: blur(4px); opacity: 0; }
+  100% { transform: scale(1); filter: blur(0); opacity: 1; }
+}
+.animate-caption-zoom {
+  animation: captionZoom 0.2s ease-out forwards;
+}
+
+/* 7. Energetic Shake Style */
+@keyframes captionShake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-4px) rotate(-1deg); }
+  40%, 80% { transform: translateX(4px) rotate(1deg); }
+}
+.animate-caption-shake {
+  animation: captionShake 0.35s ease-in-out forwards;
+}
+
+/* 8. Neon Pulsing Glow Style */
+@keyframes captionNeon {
+  0%, 100% { opacity: 0.95; filter: brightness(1.1); }
+  50% { opacity: 1; filter: brightness(1.3); }
+}
+.animate-caption-neon {
+  animation: captionNeon 1s ease-in-out infinite alternate;
+}
+
+/* 9. Karaoke Text Fill Style */
+@keyframes captionKaraoke {
+  0% { background-size: 0% 100%; }
+  100% { background-size: 100% 100%; }
+}
+.animate-caption-karaoke {
+  background: linear-gradient(to right, currentColor 100%, transparent 0);
+  background-size: 0% 100%;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: captionKaraoke 0.4s linear forwards;
+}
+
+/* 10. Cyberpunk Glitch Style */
+@keyframes captionGlitch {
+  0% {
+    clip-path: inset(40% 0 61% 0);
+    transform: skew(0.3deg);
+  }
+  20% {
+    clip-path: inset(92% 0 1% 0);
+    transform: skew(-1deg);
+  }
+  40% {
+    clip-path: inset(25% 0 58% 0);
+    transform: skew(1deg);
+  }
+  60% {
+    clip-path: inset(76% 0 14% 0);
+    transform: skew(-0.5deg);
+  }
+  80% {
+    clip-path: inset(11% 0 85% 0);
+    transform: skew(0deg);
+  }
+  100% {
+    clip-path: none;
+    transform: none;
+  }
+}
+.animate-caption-glitch {
+  animation: captionGlitch 0.3s steps(2, jump-none) infinite alternate;
+}
+
+/* Audio Wave Visualizer animation keyframe */
+@keyframes audioWaveBounce {
+  0% {
+    transform: scaleY(0.15);
+  }
+  100% {
+    transform: scaleY(1);
+  }
+}
+
