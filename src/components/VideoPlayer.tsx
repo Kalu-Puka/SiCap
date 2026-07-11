@@ -16,6 +16,19 @@ interface VideoPlayerProps {
   fonts?: FontPreset[];
 }
 
+// Fast cache for legacy font conversion
+const conversionCache = new Map<string, string>();
+
+function convertToLegacy(text: string): string {
+  // Safeguard: Sinhala Unicode block is U+0D80 to U+0DFF
+  const hasSinhalaUnicode = /[\u0d80-\u0dff]/.test(text);
+  if (!hasSinhalaUnicode) {
+    console.warn(`[සිCaps Safeguard] convertToLegacy() was called on text that lacks Sinhala Unicode characters (possibly already converted or non-Sinhala): "${text}"`);
+    return text;
+  }
+  return unicodeToDlManel(text);
+}
+
 export default function VideoPlayer({
   videoUrl,
   segments,
@@ -44,8 +57,14 @@ export default function VideoPlayer({
 
   const formatText = (text: string) => {
     if (isLegacy) {
+      const cacheKey = `${styleConfig.fontFamily}_${text}`;
+      if (conversionCache.has(cacheKey)) {
+        return conversionCache.get(cacheKey)!;
+      }
       try {
-        return unicodeToDlManel(text);
+        const converted = convertToLegacy(text);
+        conversionCache.set(cacheKey, converted);
+        return converted;
       } catch (err) {
         console.warn('Unicode to Legacy translation failed in preview:', err);
         return text;

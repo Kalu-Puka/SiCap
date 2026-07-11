@@ -235,13 +235,83 @@ function getAssAnimationTags(preset: string, durationMs: number): string {
   }
 }
 
+// Helper to convert HTML Hex Color to ASS Hex Color (&HAABBGGRR)
+function hexToAssColor(hexColor: string, defaultAlphaHtml = 255): string {
+  if (!hexColor) return '&H00FFFFFF';
+  
+  let hex = hexColor.trim().replace('#', '');
+  
+  if (hex.startsWith('rgba') || hex.startsWith('rgb')) {
+    const parts = hex.match(/\d+(\.\d+)?/g);
+    if (parts) {
+      const r = parseInt(parts[0], 10);
+      const g = parseInt(parts[1], 10);
+      const b = parseInt(parts[2], 10);
+      const a = parts[3] ? Math.round(parseFloat(parts[3]) * 255) : defaultAlphaHtml;
+      
+      const assAlpha = Math.max(0, Math.min(255, 255 - a));
+      const aa = assAlpha.toString(16).padStart(2, '0').toUpperCase();
+      const bb = b.toString(16).padStart(2, '0').toUpperCase();
+      const gg = g.toString(16).padStart(2, '0').toUpperCase();
+      const rr = r.toString(16).padStart(2, '0').toUpperCase();
+      return `&H${aa}${bb}${gg}${rr}`;
+    }
+  }
+
+  let r = 'FF';
+  let g = 'FF';
+  let b = 'FF';
+  let a = defaultAlphaHtml;
+
+  if (hex.length === 3) {
+    r = hex[0] + hex[0];
+    g = hex[1] + hex[1];
+    b = hex[2] + hex[2];
+  } else if (hex.length === 4) {
+    r = hex[0] + hex[0];
+    g = hex[1] + hex[1];
+    b = hex[2] + hex[2];
+    const aHex = hex[3] + hex[3];
+    a = parseInt(aHex, 16);
+  } else if (hex.length === 6) {
+    r = hex.slice(0, 2);
+    g = hex.slice(2, 4);
+    b = hex.slice(4, 6);
+  } else if (hex.length === 8) {
+    r = hex.slice(0, 2);
+    g = hex.slice(2, 4);
+    b = hex.slice(4, 6);
+    const aHex = hex.slice(6, 8);
+    a = parseInt(aHex, 16);
+  }
+
+  const assAlpha = Math.max(0, Math.min(255, 255 - a));
+  const aa = assAlpha.toString(16).padStart(2, '0').toUpperCase();
+  const bb = b.toUpperCase();
+  const gg = g.toUpperCase();
+  const rr = r.toUpperCase();
+
+  return `&H${aa}${bb}${gg}${rr}`;
+}
+
+// Safeguarded convert function
+function convertToLegacy(text: string): string {
+  const hasSinhalaUnicode = /[\u0d80-\u0dff]/.test(text);
+  if (!hasSinhalaUnicode) {
+    console.warn(`[සිCaps Safeguard Server] convertToLegacy() was called on text that lacks Sinhala Unicode characters (possibly already converted or non-Sinhala): "${text}"`);
+    return text;
+  }
+  return unicodeToDlManel(text);
+}
+
 // Helper to generate ASS subtitle content
 function generateAssSubtitles(segments: any[], style: any): string {
   const isLegacy = legacyFontFamilies.includes(style.fontFamily);
-  const textColorAss = style.textColor.replace('#', '&H00') + 'FF'; // ASS format is AGBR or simple RGB hex conversion, we keep it simple for mock
-  const backColorAss = style.backgroundColor.startsWith('rgba') 
-    ? '&H80000000' 
-    : style.backgroundColor.replace('#', '&H80') + 'FF'; // 50% opacity
+  
+  // Convert style panel parameters dynamically
+  const textColorAss = hexToAssColor(style.textColor, 255);
+  const strokeColorAss = hexToAssColor(style.strokeColor, 255);
+  const shadowColorAss = hexToAssColor(style.shadowColor, 255);
   
   let ass = `[Script Info]
 Title: Sinhala Captions Subtitles
@@ -252,7 +322,7 @@ PlayResY: 720
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,${style.fontFamily},${style.fontSize},${textColorAss},&H000000FF,&H00000000,${backColorAss},0,0,0,0,100,100,0,0,1,${style.strokeWidth},${style.shadowBlur},2,10,10,10,1
+Style: Default,${style.fontFamily},${style.fontSize},${textColorAss},&H000000FF,${strokeColorAss},${shadowColorAss},0,0,0,0,100,100,0,0,1,${style.strokeWidth},${style.shadowBlur},2,10,10,10,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -275,7 +345,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     let text = seg.text;
     if (isLegacy) {
       try {
-        text = unicodeToDlManel(text);
+        text = convertToLegacy(text);
       } catch (convErr) {
         console.warn('Unicode legacy translation failed for text:', text, convErr);
       }

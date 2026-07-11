@@ -12,11 +12,11 @@ export default function Header({ onShowTutorial, apiConnected }: HeaderProps) {
         {/* Brand Logo & Name */}
         <div className="flex items-center gap-3">
           <div className="relative flex h-8 w-8 items-center justify-center rounded-lg bg-violet-600 shadow-[0_0_15px_rgba(124,58,237,0.5)] font-bold text-white text-sm">
-            Si
+            සි
           </div>
           <div className="flex items-center gap-2">
             <h1 className="font-sans text-lg font-semibold tracking-tight text-white">
-              Si<span className="text-violet-400">Caps</span>
+              සි<span className="text-violet-400">Caps</span>
             </h1>
           </div>
         </div>

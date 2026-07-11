@@ -1,5 +1,5 @@
 {
-  "name": "SiCaps",
+  "name": "සිCaps",
   "description": "AI-powered auto-caption generator for videos, optimized for Sinhala and English, featuring dark-themed editor dashboard and kinetic subtitle customization.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
