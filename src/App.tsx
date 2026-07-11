@@ -9,6 +9,7 @@ import { CaptionSegment, StyleConfig, ExportJob, FontPreset, FONT_PRESETS } from
 export default function App() {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [serverVideoUrl, setServerVideoUrl] = useState<string | null>(null);
+  const [duration, setDuration] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [segments, setSegments] = useState<CaptionSegment[]>([]);
   const [currentTime, setCurrentTime] = useState(0);
@@ -57,23 +58,23 @@ export default function App() {
   const [fallbackWarning, setFallbackWarning] = useState<string | null>(null);
   const [transcribeMode, setTranscribeMode] = useState<'sinhala-direct' | 'english-to-sinhala' | 'english-direct'>('sinhala-direct');
 
-  // Default elegant style configurations
+  // Default elegant style configurations - locked to clean white text, black outline, no gradient/card/highlight as requested
   const [styleConfig, setStyleConfig] = useState<StyleConfig>({
     textColor: '#ffffff',
     backgroundColor: 'rgba(0, 0, 0, 0.45)',
     strokeColor: '#000000',
-    strokeWidth: 2,
-    shadowColor: '#8b5cf6', // Violet shadow
-    shadowBlur: 10,
+    strokeWidth: 3,
+    shadowColor: '#000000',
+    shadowBlur: 0,
     fontSize: 44,
-    fontFamily: 'Inter',
-    gradientEnabled: true,
-    gradientStart: '#c084fc', // Light purple
-    gradientEnd: '#6366f1',   // Indigo
-    animationPreset: 'apple-keynote', // Apple Event Kinetic Pop
-    highlightColor: '#facc15', // default yellow active karaoke word highlight
-    backgroundCardEnabled: true,
-    highlightEnabled: true,
+    fontFamily: 'Abhaya Libre',
+    gradientEnabled: false,
+    gradientStart: '#ffffff',
+    gradientEnd: '#ffffff',
+    animationPreset: 'fade-in',
+    highlightColor: '#ffffff',
+    backgroundCardEnabled: false,
+    highlightEnabled: false,
     positionX: 50,
     positionY: 80
   });
@@ -404,54 +405,67 @@ export default function App() {
       )}
 
       {/* Main Studio Editor workspace */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 lg:p-6 flex flex-col xl:flex-row gap-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto p-4 lg:p-6 flex flex-col gap-6">
         
-        {/* Left Column: Player, Timeline & Render Queue */}
-        <div className="flex-1 flex flex-col gap-6 max-w-full overflow-hidden">
+        {/* Top row: Sticky Video Preview & Scrollable Style Settings sidebar */}
+        <div className="flex flex-col xl:flex-row gap-6 items-start">
           
-          {/* Top block: Video Canvas Stage */}
-          <VideoPlayer
-            videoUrl={videoUrl}
-            segments={segments}
-            styleConfig={styleConfig}
-            currentTime={currentTime}
-            setCurrentTime={setCurrentTime}
-            onVideoUpload={handleVideoUpload}
-            isTranscribing={isTranscribing}
-            transcribeMode={transcribeMode}
-            onTranscribeModeChange={setTranscribeMode}
-            fonts={allFonts}
-            onChangeStyle={(partial) => setStyleConfig(prev => ({ ...prev, ...partial }))}
-          />
-
-          {/* Middle block: Interactive segments timeline rows */}
-          <div className="flex-1">
-            <Timeline
+          {/* Sticky Video Preview Stage */}
+          <div className="w-full xl:w-[480px] 2xl:w-[560px] xl:sticky xl:top-6 shrink-0 z-30">
+            <VideoPlayer
+              videoUrl={videoUrl}
               segments={segments}
+              styleConfig={styleConfig}
               currentTime={currentTime}
-              onSeek={handleSeek}
-              onUpdateSegment={handleUpdateSegment}
-              onAddSegment={handleAddSegment}
-              onDeleteSegment={handleDeleteSegment}
-              onPolishSegment={handlePolishSegment}
+              setCurrentTime={setCurrentTime}
+              onVideoUpload={handleVideoUpload}
               isTranscribing={isTranscribing}
+              transcribeMode={transcribeMode}
+              onTranscribeModeChange={setTranscribeMode}
+              fonts={allFonts}
+              onChangeStyle={(partial) => setStyleConfig(prev => {
+                // Return a clean new object to prevent cross-talk
+                return { ...prev, ...partial };
+              })}
+              duration={duration}
+              setDuration={setDuration}
+            />
+          </div>
+
+          {/* Style Controls Sidebar */}
+          <div className="flex-1 w-full">
+            <StylePanel
+              styleConfig={styleConfig}
+              onChangeStyle={(partial) => setStyleConfig(prev => {
+                // Return a clean new object to prevent cross-talk
+                return { ...prev, ...partial };
+              })}
+              onRunExport={handleRunExport}
+              canExport={!!videoUrl && segments.length > 0}
+              isExporting={isExporting}
+              exportProgress={exportProgress}
+              onExportSRT={handleExportSRT}
+              fonts={allFonts}
+              onAddCustomFont={(newFont) => setCustomFonts(prev => [...prev, newFont])}
             />
           </div>
 
         </div>
 
-        {/* Right Sidebar Column: Font, Color and Animation styles */}
-        <StylePanel
-          styleConfig={styleConfig}
-          onChangeStyle={(partial) => setStyleConfig(prev => ({ ...prev, ...partial }))}
-          onRunExport={handleRunExport}
-          canExport={!!videoUrl && segments.length > 0}
-          isExporting={isExporting}
-          exportProgress={exportProgress}
-          onExportSRT={handleExportSRT}
-          fonts={allFonts}
-          onAddCustomFont={(newFont) => setCustomFonts(prev => [...prev, newFont])}
-        />
+        {/* Bottom Section: Editing Timeline Track & Segment List */}
+        <div className="w-full pt-4 border-t border-slate-900">
+          <Timeline
+            segments={segments}
+            currentTime={currentTime}
+            onSeek={handleSeek}
+            onUpdateSegment={handleUpdateSegment}
+            onAddSegment={handleAddSegment}
+            onDeleteSegment={handleDeleteSegment}
+            onPolishSegment={handlePolishSegment}
+            isTranscribing={isTranscribing}
+            duration={duration}
+          />
+        </div>
       </main>
 
       {/* Tutorial Guidelines Help Overlay Modal */}

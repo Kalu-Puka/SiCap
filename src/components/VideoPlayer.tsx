@@ -15,6 +15,8 @@ interface VideoPlayerProps {
   onTranscribeModeChange: (mode: 'sinhala-direct' | 'english-to-sinhala' | 'english-direct') => void;
   fonts?: FontPreset[];
   onChangeStyle?: (partial: Partial<StyleConfig>) => void;
+  duration?: number;
+  setDuration?: (duration: number) => void;
 }
 
 // Fast cache for legacy font conversion
@@ -40,14 +42,24 @@ export default function VideoPlayer({
   transcribeMode,
   onTranscribeModeChange,
   fonts,
-  onChangeStyle
+  onChangeStyle,
+  duration: propsDuration,
+  setDuration: propsSetDuration
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const captionRef = useRef<HTMLDivElement | null>(null);
 
   const [isPlaying, setIsPlaying] = useState(false);
-  const [duration, setDuration] = useState(0);
+  const [localDuration, setLocalDuration] = useState(0);
+
+  const duration = propsDuration !== undefined ? propsDuration : localDuration;
+  const setDuration = (val: number) => {
+    setLocalDuration(val);
+    if (propsSetDuration) {
+      propsSetDuration(val);
+    }
+  };
   const [volume, setVolume] = useState(0.8);
   const [activeSegment, setActiveSegment] = useState<CaptionSegment | null>(null);
   const [prevSegment, setPrevSegment] = useState<CaptionSegment | null>(null);
@@ -229,6 +241,15 @@ export default function VideoPlayer({
     };
   }, [videoUrl]);
 
+  // Explicitly sync volume, un-mute, and play-state audio
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video) {
+      video.volume = volume;
+      video.muted = false;
+    }
+  }, [volume, videoUrl, isPlaying]);
+
   // Dynamic Video bounds checking for letterbox exclusions
   useEffect(() => {
     const video = videoRef.current;
@@ -354,11 +375,18 @@ export default function VideoPlayer({
   };
 
   const getSubtitleStyle = () => {
+    const baseWidth = 1920;
+    const currentWidth = videoRenderedWidth || 1280;
+    const scaleRatio = currentWidth / baseWidth;
+    const minFontSize = Math.max(14, 24 * scaleRatio);
+    const finalFontSize = Math.max(minFontSize, styleConfig.fontSize * autoScale);
+    const sizeScale = finalFontSize / styleConfig.fontSize;
+
     const styles: React.CSSProperties = {
       fontFamily: styleConfig.fontFamily,
-      fontSize: `${styleConfig.fontSize * autoScale}px`,
-      WebkitTextStroke: `${styleConfig.strokeWidth * autoScale}px ${styleConfig.strokeColor}`,
-      textShadow: styleConfig.shadowBlur > 0 ? `0 0 ${styleConfig.shadowBlur * autoScale}px ${styleConfig.shadowColor}` : 'none',
+      fontSize: `${finalFontSize}px`,
+      WebkitTextStroke: `${styleConfig.strokeWidth * sizeScale}px ${styleConfig.strokeColor}`,
+      textShadow: styleConfig.shadowBlur > 0 ? `0 0 ${styleConfig.shadowBlur * sizeScale}px ${styleConfig.shadowColor}` : 'none',
     };
 
     if (styleConfig.gradientEnabled) {
@@ -388,7 +416,7 @@ export default function VideoPlayer({
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!isDragging || !onChangeStyle) return;
-    const overlayEl = e.currentTarget.parentElement;
+    const overlayEl = e.currentTarget.parentElement?.parentElement;
     if (!overlayEl) return;
 
     const rect = overlayEl.getBoundingClientRect();
@@ -415,10 +443,21 @@ export default function VideoPlayer({
   const posY = styleConfig.positionY !== undefined ? styleConfig.positionY : 80;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col w-full bg-[#090d16] border border-slate-800 rounded-2xl p-4 md:p-6 shadow-2xl relative select-none">
+      {/* Visual Header / Indicator for the Video Stage */}
+      <div className="flex items-center justify-between mb-3 text-xs font-semibold text-slate-400 font-sans uppercase tracking-widest px-1">
+        <span className="flex items-center gap-1.5 text-violet-400">
+          <Layers className="h-3.5 w-3.5 animate-pulse" />
+          සිCaps Stage Preview
+        </span>
+        <span className="text-[10px] bg-slate-900 border border-slate-800 rounded px-2 py-0.5 text-slate-500 font-mono">
+          {isAudioFile ? "Audio Visualizer" : "Video Display 1080p"}
+        </span>
+      </div>
+
       {/* Aspect Container */}
       <div 
-        className="relative aspect-video w-full overflow-hidden rounded-xl border border-slate-800 bg-[#020617] flex items-center justify-center shadow-2xl"
+        className="relative aspect-video w-full overflow-hidden rounded-xl border border-slate-900 bg-black flex items-center justify-center shadow-inner"
         onDragEnter={handleDrag}
         onDragOver={handleDrag}
         onDragLeave={handleDrag}
@@ -477,27 +516,34 @@ export default function VideoPlayer({
                 height: `${videoRenderedHeight || '100%'}px`,
               }}
             >
-              {/* Draggable Subtitle Element */}
-              <div 
-                ref={captionRef}
-                onPointerDown={handlePointerDown}
-                onPointerMove={handlePointerMove}
-                onPointerUp={handlePointerUp}
-                className="absolute transition-shadow rounded-lg px-4 py-2 text-center pointer-events-auto touch-none select-none"
-                style={{ 
-                  left: `${posX}%`,
+              {/* Centered Position Wrapper: prevents squeezing absolute bounds constraint on left/right edges */}
+              <div
+                className="absolute inset-x-0 pointer-events-none flex justify-center"
+                style={{
                   top: `${posY}%`,
-                  transform: 'translate(-50%, -50%)',
-                  cursor: isDragging ? 'grabbing' : 'grab',
-                  maxWidth: '90%',
-                  overflowWrap: 'break-word',
-                  wordBreak: 'break-word',
-                  whiteSpace: 'normal',
-                  backgroundColor: (styleConfig.backgroundCardEnabled !== false && activeSegment) ? styleConfig.backgroundColor : 'transparent',
-                  boxShadow: isDragging ? '0 20px 25px -5px rgb(0 0 0 / 0.5)' : 'none',
-                  border: isDragging ? '1px dashed rgba(139, 92, 246, 0.4)' : 'none',
+                  transform: 'translateY(-50%)',
                 }}
               >
+                {/* Draggable Subtitle Element */}
+                <div 
+                  ref={captionRef}
+                  onPointerDown={handlePointerDown}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={handlePointerUp}
+                  className="transition-shadow rounded-lg px-4 py-2 text-center pointer-events-auto touch-none select-none"
+                  style={{ 
+                    transform: `translateX(${posX - 50}%)`,
+                    cursor: isDragging ? 'grabbing' : 'grab',
+                    width: 'max-content',
+                    maxWidth: '90%',
+                    overflowWrap: 'normal',
+                    wordBreak: 'normal',
+                    whiteSpace: 'normal',
+                    backgroundColor: (styleConfig.backgroundCardEnabled !== false && activeSegment) ? styleConfig.backgroundColor : 'transparent',
+                    boxShadow: isDragging ? '0 20px 25px -5px rgb(0 0 0 / 0.5)' : 'none',
+                    border: isDragging ? '1px dashed rgba(139, 92, 246, 0.4)' : 'none',
+                  }}
+                >
                 {/* Dual-state render: active and previous caption words */}
                 {styleConfig.animationPreset === 'apple-keynote' ? (
                   <div className="relative flex flex-col items-center justify-center">
@@ -544,63 +590,9 @@ export default function VideoPlayer({
                   )
                 )}
               </div>
-            </div>
-
-            {/* Custom Control Bar overlay on hover */}
-            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-4 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col gap-2">
-              {/* Progress Slider */}
-              <div className="flex items-center gap-3">
-                <span className="font-mono text-[10px] text-slate-300">
-                  {formatSeconds(currentTime)}
-                </span>
-                <input
-                  type="range"
-                  min={0}
-                  max={duration || 1}
-                  step={0.01}
-                  value={currentTime}
-                  onChange={handleSeek}
-                  className="flex-1 h-1.5 rounded-lg appearance-none cursor-pointer bg-slate-800 accent-violet-500 focus:outline-none"
-                />
-                <span className="font-mono text-[10px] text-slate-300">
-                  {formatSeconds(duration)}
-                </span>
-              </div>
-
-              {/* Main Control Actions */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <button 
-                    onClick={togglePlay}
-                    className="p-1.5 rounded-lg bg-slate-900/80 text-slate-200 hover:text-white cursor-pointer border border-slate-800"
-                  >
-                    {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-                  </button>
-
-                  <div className="flex items-center gap-2 bg-slate-900/80 px-2.5 py-1 rounded-lg border border-slate-800">
-                    <Volume2 className="h-3.5 w-3.5 text-slate-400" />
-                    <input
-                      type="range"
-                      min={0}
-                      max={1}
-                      step={0.05}
-                      value={volume}
-                      onChange={handleVolumeChange}
-                      className="w-16 h-1 rounded bg-slate-700 accent-violet-500 appearance-none cursor-pointer"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button 
-                    onClick={toggleFullscreen}
-                    className="p-1.5 rounded-lg bg-slate-900/80 text-slate-200 hover:text-white cursor-pointer border border-slate-800"
-                  >
-                    <Maximize className="h-4 w-4" />
-                  </button>
-                </div>
               </div>
             </div>
+
           </div>
         ) : (
           /* Empty Drag/Upload Workspace */
@@ -691,6 +683,72 @@ export default function VideoPlayer({
           </label>
         )}
       </div>
+
+      {/* Persistent Transport Bar directly under the stage */}
+      {videoUrl && (
+        <div className="mt-4 flex flex-col gap-3 bg-slate-950/85 border border-slate-800/80 rounded-xl p-3.5 shadow-md">
+          {/* Progress Slider (Scrubber) */}
+          <div className="flex items-center gap-3">
+            <span className="font-mono text-xs text-slate-400 min-w-[50px] text-right">
+              {formatSeconds(currentTime)}
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={duration || 1}
+              step={0.01}
+              value={currentTime}
+              onChange={handleSeek}
+              className="flex-1 h-1.5 rounded-lg appearance-none cursor-pointer bg-slate-800 accent-violet-500 hover:accent-violet-400 focus:outline-none transition-all"
+            />
+            <span className="font-mono text-xs text-slate-400 min-w-[50px]">
+              {formatSeconds(duration)}
+            </span>
+          </div>
+
+          {/* Controls bar */}
+          <div className="flex items-center justify-between gap-4">
+            {/* Play/Pause & Volume controls */}
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={togglePlay}
+                className="p-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white cursor-pointer shadow-md shadow-violet-900/10 transition-all flex items-center justify-center border border-violet-500/30"
+                title={isPlaying ? "Pause (Space)" : "Play (Space)"}
+              >
+                {isPlaying ? <Pause className="h-4.5 w-4.5" /> : <Play className="h-4.5 w-4.5 fill-current" />}
+              </button>
+
+              <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg">
+                <Volume2 className="h-4 w-4 text-slate-400 shrink-0" />
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={volume}
+                  onChange={handleVolumeChange}
+                  className="w-16 h-1 rounded bg-slate-700 accent-violet-500 appearance-none cursor-pointer"
+                  title="Volume"
+                />
+              </div>
+            </div>
+
+            {/* Scale/Status and Fullscreen */}
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-mono text-slate-500 bg-slate-900/50 px-2 py-1 rounded border border-slate-800/30">
+                {Math.round(autoScale * 100)}% scale
+              </span>
+              <button 
+                onClick={toggleFullscreen}
+                className="p-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white cursor-pointer border border-slate-800 transition-all"
+                title="Toggle Fullscreen"
+              >
+                <Maximize className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

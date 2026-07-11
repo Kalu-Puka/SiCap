@@ -12,6 +12,7 @@ interface TimelineProps {
   onDeleteSegment: (id: string) => void;
   onPolishSegment?: (id: string, text: string, mode: 'polish' | 'translate') => Promise<string | undefined>;
   isTranscribing?: boolean;
+  duration?: number;
 }
 
 export default function Timeline({
@@ -22,7 +23,8 @@ export default function Timeline({
   onAddSegment,
   onDeleteSegment,
   onPolishSegment,
-  isTranscribing = false
+  isTranscribing = false,
+  duration = 0
 }: TimelineProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [tempText, setTempText] = useState('');
@@ -111,6 +113,48 @@ export default function Timeline({
           </button>
         </div>
       </div>
+
+      {/* Proportional Interactive Track (rendered when segments and duration exist) */}
+      {duration > 0 && segments.length > 0 && (
+        <div className="px-5 py-3 border-b border-slate-800 bg-[#04060b] select-none">
+          <div className="text-[10px] text-slate-500 font-sans mb-1.5 uppercase tracking-wider font-semibold">
+            Visual Segment Track Map
+          </div>
+          <div className="relative h-6 bg-slate-950 rounded-lg border border-slate-800 overflow-hidden">
+            {/* Playback Scrubber Bar line */}
+            <div 
+              className="absolute top-0 bottom-0 w-0.5 bg-violet-500 z-20 shadow-[0_0_8px_#8b5cf6] pointer-events-none"
+              style={{ left: `${(currentTime / duration) * 100}%` }}
+            />
+            {/* Segments mapped */}
+            {segments.map((seg, i) => {
+              const startPct = (seg.start / (duration * 1000)) * 100;
+              const endPct = (seg.end / (duration * 1000)) * 100;
+              const widthPct = Math.max(1, endPct - startPct);
+              const isActive = currentMs >= seg.start && currentMs <= seg.end;
+              return (
+                <div
+                  key={seg.id || i}
+                  onClick={() => onSeek(seg.start / 1000)}
+                  className={`absolute top-1 bottom-1 rounded-md text-[9px] font-sans font-bold flex items-center justify-center truncate px-1 border cursor-pointer transition-all ${
+                    isActive
+                      ? 'bg-violet-600 border-violet-400 text-white shadow-lg shadow-violet-900/30'
+                      : 'bg-slate-900 hover:bg-slate-850 border-slate-850 text-slate-400 hover:text-slate-200'
+                  }`}
+                  style={{ left: `${startPct}%`, width: `${widthPct}%` }}
+                  title={`${seg.text} (${formatMs(seg.start)} - ${formatMs(seg.end)})`}
+                >
+                  <span className="truncate">{seg.text}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex justify-between text-[9px] font-mono text-slate-500 mt-1">
+            <span>00:00.00</span>
+            <span>{formatMs(duration * 1000)}</span>
+          </div>
+        </div>
+      )}
 
       {/* Grid Timeline List */}
       <div className="flex-1 overflow-y-auto max-h-[300px] p-4">
