@@ -15,6 +15,76 @@
   font-style: normal;
 }
 
+@font-face {
+  font-family: 'Sinhala Sangam MN';
+  src: url('/fonts/Sinhala Sangam MN.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Sinhala Sangam MN Bold';
+  src: url('/fonts/sinhala-sangam-mn-bold.ttf') format('truetype');
+  font-weight: bold;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Sinhala MN';
+  src: url('/fonts/sinhala-mn-regular.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Nirmala UI';
+  src: url('/fonts/nirmala-ui.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Nirmala UI Bold';
+  src: url('/fonts/nirmala-ui-bold.ttf') format('truetype');
+  font-weight: bold;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Yaldevi';
+  src: url('/fonts/Yaldevi-SemiBold.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'UN-Emanee';
+  src: url('/fonts/un-emanee.TTF') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'UN-Ganganee';
+  src: url('/fonts/un-ganganee.TTF') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'UN-Gemunu';
+  src: url('/fonts/un-gemunu.TTF') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'ISIDAVAS';
+  src: url('/fonts/ISIDAVAS.TTF') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Space Grotesk", ui-monospace, monospace;

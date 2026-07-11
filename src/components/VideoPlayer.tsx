@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Play, Pause, Upload, Volume2, Maximize, RefreshCw, Layers } from 'lucide-react';
-import { CaptionSegment, StyleConfig, FONT_PRESETS } from '../types';
+import { CaptionSegment, StyleConfig, FONT_PRESETS, FontPreset } from '../types';
+import { unicodeToDlManel } from 'sinhala-unicode-coverter';
 
 interface VideoPlayerProps {
   videoUrl: string | null;
@@ -12,6 +13,7 @@ interface VideoPlayerProps {
   isTranscribing: boolean;
   transcribeMode: 'sinhala-direct' | 'english-to-sinhala' | 'english-direct';
   onTranscribeModeChange: (mode: 'sinhala-direct' | 'english-to-sinhala' | 'english-direct') => void;
+  fonts?: FontPreset[];
 }
 
 export default function VideoPlayer({
@@ -23,7 +25,8 @@ export default function VideoPlayer({
   onVideoUpload,
   isTranscribing,
   transcribeMode,
-  onTranscribeModeChange
+  onTranscribeModeChange,
+  fonts
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -34,6 +37,22 @@ export default function VideoPlayer({
   const [dragActive, setDragActive] = useState(false);
 
   const isAudioFile = !!videoUrl?.match(/\.(mp3|wav|m4a|aac|ogg|flac|mpeg)(?:\?|$)/i);
+  
+  const allFonts = fonts || FONT_PRESETS;
+  const selectedFont = allFonts.find(f => f.family === styleConfig.fontFamily);
+  const isLegacy = selectedFont?.fontType === 'legacy';
+
+  const formatText = (text: string) => {
+    if (isLegacy) {
+      try {
+        return unicodeToDlManel(text);
+      } catch (err) {
+        console.warn('Unicode to Legacy translation failed in preview:', err);
+        return text;
+      }
+    }
+    return text;
+  };
 
   // Synchronize playback state
   useEffect(() => {
@@ -149,7 +168,7 @@ export default function VideoPlayer({
 
   // Build the dynamic CSS styles for subtitle captions
   const getSubtitleStyle = () => {
-    const selectedFont = FONT_PRESETS.find(f => f.family === styleConfig.fontFamily);
+    const selectedFont = allFonts.find(f => f.family === styleConfig.fontFamily);
     const styles: React.CSSProperties = {
       fontFamily: styleConfig.fontFamily,
       fontSize: `${styleConfig.fontSize}px`,
@@ -239,7 +258,7 @@ export default function VideoPlayer({
                         className="absolute text-slate-600/40 transform scale-75 opacity-0 transition-all duration-150 line-clamp-1"
                         style={{ fontFamily: styleConfig.fontFamily, fontSize: `${styleConfig.fontSize * 0.8}px` }}
                       >
-                        {prevSegment.text}
+                        {formatText(prevSegment.text)}
                       </span>
                     )}
                     {/* Active Pop-Up Kinetic Word */}
@@ -249,7 +268,7 @@ export default function VideoPlayer({
                         className="animate-apple-keynote inline-block transform"
                         style={getSubtitleStyle()}
                       >
-                        {activeSegment.text}
+                        {formatText(activeSegment.text)}
                       </span>
                     )}
                   </div>
@@ -271,7 +290,7 @@ export default function VideoPlayer({
                       }`}
                       style={getSubtitleStyle()}
                     >
-                      {activeSegment.text}
+                      {formatText(activeSegment.text)}
                     </span>
                   )
                 )}

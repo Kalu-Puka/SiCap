@@ -40,6 +40,7 @@ export interface FontPreset {
   family: string;
   url: string;
   isLocal: boolean;
+  fontType: 'unicode' | 'legacy';
 }
 
 export const ANIMATION_PRESETS = [
@@ -56,9 +57,21 @@ export const ANIMATION_PRESETS = [
 ];
 
 export const FONT_PRESETS: FontPreset[] = [
-  { id: 'inter', name: 'Inter (Sans-Serif)', family: 'Inter', url: '', isLocal: false },
-  { id: 'fm-abhaya', name: 'Abhaya Libre (Sinhala Serif)', family: 'Abhaya Libre', url: 'https://fonts.gstatic.com/s/abhayalibre/v11/V780wz66DMyEHzK0--1idS9uS_8.woff2', isLocal: false },
-  { id: 'yaso', name: 'FM Yaso (Sinhala Custom TTF)', family: 'FMYaso', url: '/fonts/FMYASO.ttf', isLocal: true },
-  { id: 'malithi', name: 'FM Malithi (Sinhala Custom TTF)', family: 'FMMalithi', url: '/fonts/FMMALITHI.ttf', isLocal: true },
-  { id: 'space-grotesk', name: 'Space Grotesk (Tech Mono)', family: 'Space Grotesk', url: '', isLocal: false }
+  { id: 'inter', name: 'Inter (Sans-Serif)', family: 'Inter', url: '', isLocal: false, fontType: 'unicode' },
+  { id: 'fm-abhaya', name: 'Abhaya Libre (Sinhala Unicode Serif)', family: 'Abhaya Libre', url: 'https://fonts.gstatic.com/s/abhayalibre/v11/V780wz66DMyEHzK0--1idS9uS_8.woff2', isLocal: false, fontType: 'unicode' },
+  { id: 'space-grotesk', name: 'Space Grotesk (Tech Mono)', family: 'Space Grotesk', url: '', isLocal: false, fontType: 'unicode' },
+  // Local Sinhala Unicode Fonts
+  { id: 'sinhala-sangam-mn', name: 'Sinhala Sangam MN', family: 'Sinhala Sangam MN', url: '/fonts/Sinhala Sangam MN.ttf', isLocal: true, fontType: 'unicode' },
+  { id: 'sinhala-sangam-mn-bold', name: 'Sinhala Sangam MN Bold', family: 'Sinhala Sangam MN Bold', url: '/fonts/sinhala-sangam-mn-bold.ttf', isLocal: true, fontType: 'unicode' },
+  { id: 'sinhala-mn', name: 'Sinhala MN Regular', family: 'Sinhala MN', url: '/fonts/sinhala-mn-regular.ttf', isLocal: true, fontType: 'unicode' },
+  { id: 'nirmala-ui', name: 'Nirmala UI', family: 'Nirmala UI', url: '/fonts/nirmala-ui.ttf', isLocal: true, fontType: 'unicode' },
+  { id: 'nirmala-ui-bold', name: 'Nirmala UI Bold', family: 'Nirmala UI Bold', url: '/fonts/nirmala-ui-bold.ttf', isLocal: true, fontType: 'unicode' },
+  { id: 'yaldevi', name: 'Yaldevi SemiBold', family: 'Yaldevi', url: '/fonts/Yaldevi-SemiBold.ttf', isLocal: true, fontType: 'unicode' },
+  // Local Sinhala Legacy (FM-Style) Fonts
+  { id: 'un-emanee', name: 'UN-Emanee (Legacy FM)', family: 'UN-Emanee', url: '/fonts/un-emanee.TTF', isLocal: true, fontType: 'legacy' },
+  { id: 'un-ganganee', name: 'UN-Ganganee (Legacy FM)', family: 'UN-Ganganee', url: '/fonts/un-ganganee.TTF', isLocal: true, fontType: 'legacy' },
+  { id: 'un-gemunu', name: 'UN-Gemunu (Legacy FM)', family: 'UN-Gemunu', url: '/fonts/un-gemunu.TTF', isLocal: true, fontType: 'legacy' },
+  { id: 'isidavas', name: 'ISIDAVAS (Legacy FM)', family: 'ISIDAVAS', url: '/fonts/ISIDAVAS.TTF', isLocal: true, fontType: 'legacy' },
+  { id: 'yaso', name: 'FM Yaso (Legacy FM)', family: 'FMYaso', url: '/fonts/FMYASO.ttf', isLocal: true, fontType: 'legacy' },
+  { id: 'malithi', name: 'FM Malithi (Legacy FM)', family: 'FMMalithi', url: '/fonts/FMMALITHI.ttf', isLocal: true, fontType: 'legacy' }
 ];

@@ -5,7 +5,7 @@ import VideoPlayer from './components/VideoPlayer';
 import StylePanel from './components/StylePanel';
 import Timeline from './components/Timeline';
 import ExportQueue from './components/ExportQueue';
-import { CaptionSegment, StyleConfig, ExportJob } from './types';
+import { CaptionSegment, StyleConfig, ExportJob, FontPreset, FONT_PRESETS } from './types';
 
 export default function App() {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
@@ -18,6 +18,42 @@ export default function App() {
   const [jobs, setJobs] = useState<ExportJob[]>([]);
   const [tutorialOpen, setTutorialOpen] = useState(false);
   const [apiConnected, setApiConnected] = useState(true);
+
+  const [customFonts, setCustomFonts] = useState<FontPreset[]>(() => {
+    try {
+      const saved = localStorage.getItem('custom-fonts');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Sync custom fonts to localStorage
+  useEffect(() => {
+    localStorage.setItem('custom-fonts', JSON.stringify(customFonts));
+  }, [customFonts]);
+
+  // Inject CSS @font-face rules dynamically for custom fonts
+  useEffect(() => {
+    customFonts.forEach(font => {
+      const styleId = `style-custom-${font.family}`;
+      if (!document.getElementById(styleId)) {
+        const style = document.createElement('style');
+        style.id = styleId;
+        style.innerHTML = `
+          @font-face {
+            font-family: '${font.family}';
+            src: url('${font.url}') format('truetype');
+            font-weight: normal;
+            font-style: normal;
+          }
+        `;
+        document.head.appendChild(style);
+      }
+    });
+  }, [customFonts]);
+
+  const allFonts = [...FONT_PRESETS, ...customFonts];
   const [fallbackWarning, setFallbackWarning] = useState<string | null>(null);
   const [transcribeMode, setTranscribeMode] = useState<'sinhala-direct' | 'english-to-sinhala' | 'english-direct'>('sinhala-direct');
 
@@ -306,6 +342,7 @@ export default function App() {
             isTranscribing={isTranscribing}
             transcribeMode={transcribeMode}
             onTranscribeModeChange={setTranscribeMode}
+            fonts={allFonts}
           />
 
           {/* Middle block: Interactive segments timeline rows */}
@@ -338,6 +375,8 @@ export default function App() {
           onRunExport={handleRunExport}
           canExport={!!videoUrl && segments.length > 0}
           isExporting={isExporting}
+          fonts={allFonts}
+          onAddCustomFont={(newFont) => setCustomFonts(prev => [...prev, newFont])}
         />
       </main>
 

@@ -6,6 +6,7 @@ import { GoogleGenAI, Type } from '@google/genai';
 import multer from 'multer';
 import dotenv from 'dotenv';
 import ffmpeg from 'fluent-ffmpeg';
+import { unicodeToDlManel } from 'sinhala-unicode-coverter';
 
 dotenv.config();
 
@@ -18,11 +19,69 @@ if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 if (!fs.existsSync(exportDir)) fs.mkdirSync(exportDir, { recursive: true });
 if (!fs.existsSync(fontDir)) fs.mkdirSync(fontDir, { recursive: true });
 
-// Create simple local empty font files if they don't exist to prevent 404s
-const fmYasoPath = path.join(fontDir, 'FMYASO.ttf');
-const fmMallithiPath = path.join(fontDir, 'FMMALITHI.ttf');
-if (!fs.existsSync(fmYasoPath)) fs.writeFileSync(fmYasoPath, '');
-if (!fs.existsSync(fmMallithiPath)) fs.writeFileSync(fmMallithiPath, '');
+// List of 10 main Sinhala fonts to download from Kalu-Puka GitHub repo
+const fontsToDownload = [
+  { file: 'ISIDAVAS.TTF', url: 'https://raw.githubusercontent.com/Kalu-Puka/Fonts/main/ISIDAVAS.TTF' },
+  { file: 'Sinhala Sangam MN.ttf', url: 'https://raw.githubusercontent.com/Kalu-Puka/Fonts/main/Sinhala%20Sangam%20MN.ttf' },
+  { file: 'Yaldevi-SemiBold.ttf', url: 'https://raw.githubusercontent.com/Kalu-Puka/Fonts/main/Yaldevi-SemiBold.ttf' },
+  { file: 'nirmala-ui.ttf', url: 'https://raw.githubusercontent.com/Kalu-Puka/Fonts/main/nirmala-ui.ttf' },
+  { file: 'nirmala-ui-bold.ttf', url: 'https://raw.githubusercontent.com/Kalu-Puka/Fonts/main/nirmala-ui-bold.ttf' },
+  { file: 'sinhala-mn-regular.ttf', url: 'https://raw.githubusercontent.com/Kalu-Puka/Fonts/main/sinhala-mn-regular.ttf' },
+  { file: 'sinhala-sangam-mn-bold.ttf', url: 'https://raw.githubusercontent.com/Kalu-Puka/Fonts/main/sinhala-sangam-mn-bold.ttf' },
+  { file: 'un-emanee.TTF', url: 'https://raw.githubusercontent.com/Kalu-Puka/Fonts/main/un-emanee.TTF' },
+  { file: 'un-ganganee.TTF', url: 'https://raw.githubusercontent.com/Kalu-Puka/Fonts/main/un-ganganee.TTF' },
+  { file: 'un-gemunu.TTF', url: 'https://raw.githubusercontent.com/Kalu-Puka/Fonts/main/un-gemunu.TTF' },
+];
+
+// Optional legacy fonts that might be needed
+const optionalFonts = [
+  { file: 'FMYASO.ttf', url: 'https://raw.githubusercontent.com/Kalu-Puka/Fonts/main/FMYASO.ttf' },
+  { file: 'FMMALITHI.ttf', url: 'https://raw.githubusercontent.com/Kalu-Puka/Fonts/main/FMMALITHI.ttf' },
+];
+
+async function downloadFonts() {
+  console.log('Checking and downloading Sinhala fonts...');
+  for (const font of [...fontsToDownload, ...optionalFonts]) {
+    const dest = path.join(fontDir, font.file);
+    let shouldDownload = false;
+    
+    if (!fs.existsSync(dest)) {
+      shouldDownload = true;
+    } else {
+      const stats = fs.statSync(dest);
+      if (stats.size === 0) {
+        shouldDownload = true;
+      }
+    }
+
+    if (shouldDownload) {
+      console.log(`Downloading font: ${font.file} from ${font.url}...`);
+      try {
+        const response = await fetch(font.url);
+        if (!response.ok) {
+          throw new Error(`HTTP status ${response.status}`);
+        }
+        const buffer = await response.arrayBuffer();
+        fs.writeFileSync(dest, Buffer.from(buffer));
+        console.log(`Successfully downloaded ${font.file}`);
+      } catch (err: any) {
+        console.warn(`Failed to download font ${font.file}:`, err.message);
+        // Fallback for FMYASO / FMMALITHI to prevent 404s if missing on repo
+        if (font.file === 'FMYASO.ttf' || font.file === 'FMMALITHI.ttf') {
+          console.log(`Writing empty placeholder fallback for ${font.file}`);
+          fs.writeFileSync(dest, '');
+        }
+      }
+    } else {
+      console.log(`Font ${font.file} already exists and is non-empty, skipping download.`);
+    }
+  }
+}
+
+// Call download on startup
+downloadFonts().catch(err => {
+  console.error('Error during font downloading:', err);
+});
 
 const app = express();
 const PORT = 3000;
@@ -138,10 +197,51 @@ interface ExportJobInternal {
 
 const exportJobs: Map<string, ExportJobInternal> = new Map();
 
+// List of legacy font families to trigger Unicode -> FM legacy translation at render time
+const legacyFontFamilies = [
+  'FMYaso',
+  'FMMalithi',
+  'UN-Emanee',
+  'UN-Ganganee',
+  'UN-Gemunu',
+  'ISIDAVAS'
+];
+
+// Helper to get ASS override tags for specific kinetic animation presets
+function getAssAnimationTags(preset: string, durationMs: number): string {
+  switch (preset) {
+    case 'apple-keynote':
+      return `{\\fscx60\\fscy60\\t(0,80,\\fscx100\\fscy100)}`;
+    case 'bounce':
+      return `{\\fscx80\\fscy80\\t(0,150,\\fscx115\\fscy115)\\t(150,250,\\fscx100\\fscy100)}`;
+    case 'fade-in':
+      return `{\\fad(150,0)}`;
+    case 'pop':
+      return `{\\fscx30\\fscy30\\t(0,120,\\fscx110\\fscy110)\\t(120,200,\\fscx100\\fscy100)}`;
+    case 'slide-up':
+      return `{\\fad(150,0)\\an2\\t(0,150,\\fscy105)}`;
+    case 'kinetic-zoom':
+      return `{\\fscx160\\fscy160\\t(0,180,\\fscx100\\fscy100)}`;
+    case 'shake':
+      return `{\\t(0,50,\\frz-1)\\t(50,100,\\frz1)\\t(100,150,\\frz0)}`;
+    case 'neon-glow':
+      return `{\\blur6\\bord4}`;
+    case 'karaoke-fill':
+      return `{\\k${Math.round(durationMs / 10)}}`;
+    case 'glitch':
+      return `{\\t(0,50,\\fscx110\\frz2)\\t(50,100,\\fscx100\\frz0)}`;
+    default:
+      return '';
+  }
+}
+
 // Helper to generate ASS subtitle content
 function generateAssSubtitles(segments: any[], style: any): string {
+  const isLegacy = legacyFontFamilies.includes(style.fontFamily);
   const textColorAss = style.textColor.replace('#', '&H00') + 'FF'; // ASS format is AGBR or simple RGB hex conversion, we keep it simple for mock
-  const backColorAss = style.backgroundColor.replace('#', '&H80') + 'FF'; // 50% opacity
+  const backColorAss = style.backgroundColor.startsWith('rgba') 
+    ? '&H80000000' 
+    : style.backgroundColor.replace('#', '&H80') + 'FF'; // 50% opacity
   
   let ass = `[Script Info]
 Title: Sinhala Captions Subtitles
@@ -170,7 +270,21 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     const startStr = formatTime(seg.start);
     const endStr = formatTime(seg.end);
-    ass += `Dialogue: 0,${startStr},${endStr},Default,,0,0,0,,${seg.text}\n`;
+    
+    // Apply Unicode to Legacy conversion if font is legacy
+    let text = seg.text;
+    if (isLegacy) {
+      try {
+        text = unicodeToDlManel(text);
+      } catch (convErr) {
+        console.warn('Unicode legacy translation failed for text:', text, convErr);
+      }
+    }
+
+    const durationMs = seg.end - seg.start;
+    const animTags = getAssAnimationTags(style.animationPreset, durationMs);
+    
+    ass += `Dialogue: 0,${startStr},${endStr},Default,,0,0,0,,${animTags}${text}\n`;
   });
 
   return ass;
@@ -181,62 +295,80 @@ setInterval(() => {
   for (const [id, job] of exportJobs.entries()) {
     if (job.status === 'pending') {
       job.status = 'processing';
-      job.progress = 10;
+      job.progress = 5;
       
-      // Simulate processing
-      let progressTimer = setInterval(() => {
-        if (job.status !== 'processing') {
-          clearInterval(progressTimer);
-          return;
-        }
-        
-        job.progress += 15;
-        if (job.progress >= 95) {
-          job.progress = 95;
-        }
-      }, 800);
+      const inputBasename = path.basename(job.videoUrl);
+      const assFilename = `subs_${job.id}.ass`;
+      const outputFilename = `export_${job.id}_burn.mp4`;
+      
+      const relativeVideoPath = job.videoUrl.replace(/^\//, '');
+      const originalPath = path.join(process.cwd(), relativeVideoPath);
+      const assPath = path.join(exportDir, assFilename);
+      const finalOutputPath = path.join(exportDir, outputFilename);
+      
+      // Generate actual ffmpeg commands to show user exactly how it's done
+      const ffmpegCmd = `ffmpeg -i ${relativeVideoPath} -vf "subtitles=exports/${assFilename}:fontsdir=public/fonts" -c:v libx264 -c:a copy exports/${outputFilename}`;
+      const remotionCmd = `npx remotion render src/remotion/SubtitleComposition.tsx --props='${JSON.stringify({ videoUrl: job.videoUrl, segments: job.segments, style: job.styleConfig })}' --out exports/${outputFilename}`;
+      
+      job.ffmpegCommand = ffmpegCmd;
+      job.remotionCommand = remotionCmd;
 
-      setTimeout(() => {
-        clearInterval(progressTimer);
+      try {
+        // Save real subtitle file
+        const assContent = generateAssSubtitles(job.segments, job.styleConfig);
+        fs.writeFileSync(assPath, assContent);
         
-        // Generate actual ffmpeg commands to show user exactly how it's done
-        const inputBasename = path.basename(job.videoUrl);
-        const assFilename = `subs_${job.id}.ass`;
-        const outputFilename = `export_${job.id}_burn.mp4`;
+        if (!fs.existsSync(originalPath)) {
+          throw new Error(`Original video file not found at: ${originalPath}`);
+        }
+
+        const isAudioOnly = !!job.videoUrl.match(/\.(mp3|wav|m4a|aac|ogg|flac|mpeg)(?:\?|$)/i);
         
-        const ffmpegCmd = `ffmpeg -i uploads/${inputBasename} -vf "subtitles=exports/${assFilename}:fontsdir=public/fonts" -c:a copy exports/${outputFilename}`;
-        const remotionCmd = `npx remotion render src/remotion/SubtitleComposition.tsx --props='${JSON.stringify({ videoUrl: job.videoUrl, segments: job.segments, style: job.styleConfig })}' --out exports/${outputFilename}`;
-        
-        // Save mock subtitle file
-        try {
-          const assContent = generateAssSubtitles(job.segments, job.styleConfig);
-          fs.writeFileSync(path.join(exportDir, assFilename), assContent);
-          
-          // Duplicate video file to simulate final render, or make a mock video if original doesn't exist
-          const finalOutputPath = path.join(exportDir, outputFilename);
-          const originalPath = path.join(process.cwd(), job.videoUrl);
-          
-          if (fs.existsSync(originalPath)) {
-            fs.copyFileSync(originalPath, finalOutputPath);
-          } else {
-            // Write a small dummy file if original isn't physically present
-            fs.writeFileSync(finalOutputPath, 'Mock Exported Video File');
-          }
-          
+        if (isAudioOnly) {
+          // Just copy audio file
+          fs.copyFileSync(originalPath, finalOutputPath);
           job.status = 'completed';
           job.progress = 100;
           job.outputUrl = `/exports/${outputFilename}`;
-          job.ffmpegCommand = ffmpegCmd;
-          job.remotionCommand = remotionCmd;
-          
-        } catch (e: any) {
-          job.status = 'failed';
-          job.error = e.message || 'An error occurred during rendering simulation';
+        } else {
+          // Execute actual FFmpeg command to burn subtitles
+          console.log(`Starting real subtitle burn-in for job ${job.id}...`);
+          ffmpeg(originalPath)
+            .videoFilters(`subtitles=${assPath}:fontsdir=${fontDir}`)
+            .videoCodec('libx264')
+            .audioCodec('copy')
+            .on('start', (cmdline) => {
+              console.log(`FFmpeg started with: ${cmdline}`);
+            })
+            .on('progress', (progress) => {
+              if (progress.percent) {
+                job.progress = Math.min(99, Math.round(progress.percent));
+              } else {
+                job.progress = Math.min(95, job.progress + 2);
+              }
+            })
+            .on('end', () => {
+              console.log(`FFmpeg finished burning subtitles for job ${job.id}`);
+              job.status = 'completed';
+              job.progress = 100;
+              job.outputUrl = `/exports/${outputFilename}`;
+            })
+            .on('error', (err) => {
+              console.error(`FFmpeg error during burn-in for job ${job.id}:`, err.message);
+              job.status = 'failed';
+              job.error = err.message || 'FFmpeg encoding failed';
+            })
+            .save(finalOutputPath);
         }
-      }, 5000); // 5 seconds processing duration
+        
+      } catch (e: any) {
+        console.error(`Export queue processing error for job ${job.id}:`, e);
+        job.status = 'failed';
+        job.error = e.message || 'An error occurred during video rendering';
+      }
     }
   }
-}, 2000);
+}, 3000);
 
 // API: Health check
 app.get('/api/health', (req, res) => {
@@ -484,6 +616,57 @@ app.post('/api/polish-text', express.json(), async (req, res) => {
   } catch (error: any) {
     console.error('API Polish Text Error:', error);
     res.json({ success: false, error: error.message || 'Failed to polish text.' });
+  }
+});
+
+// Multer storage for custom font uploads
+const fontStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, fontDir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const base = path.basename(file.originalname, ext)
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '-');
+    cb(null, `${base}${ext}`);
+  }
+});
+
+const uploadFont = multer({
+  storage: fontStorage,
+  limits: { fileSize: 20 * 1024 * 1024 } // 20MB limit for font files
+});
+
+// API: Upload custom font file (.ttf / .otf)
+app.post('/api/upload-font', uploadFont.single('font'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.json({ success: false, error: 'No font file uploaded.' });
+    }
+
+    const customName = req.body.name || path.basename(req.file.filename, path.extname(req.file.filename));
+    const fontType = req.body.fontType || 'unicode'; // 'unicode' or 'legacy'
+
+    // Create a sanitized CSS-safe font-family name
+    const family = customName.replace(/[^a-zA-Z0-9-]/g, '') || `custom-font-${Date.now()}`;
+
+    const fontPreset = {
+      id: `custom_${Date.now()}`,
+      name: `${customName} (Custom Upload)`,
+      family: family,
+      url: `/fonts/${req.file.filename}`,
+      isLocal: true,
+      fontType: fontType
+    };
+
+    res.json({
+      success: true,
+      fontPreset
+    });
+  } catch (err: any) {
+    console.error('Font upload error on server:', err);
+    res.json({ success: false, error: err.message || 'Failed to upload and register custom font.' });
   }
 });
 

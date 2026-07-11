@@ -1,5 +1,6 @@
-import { Type, Sparkles, Sliders, Palette, Play } from 'lucide-react';
-import { StyleConfig, FontPreset, FONT_PRESETS, ANIMATION_PRESETS } from '../types';
+import { Type, Sparkles, Sliders, Palette, Play, Upload } from 'lucide-react';
+import { StyleConfig, FontPreset, ANIMATION_PRESETS } from '../types';
+import React from 'react';
 
 interface StylePanelProps {
   styleConfig: StyleConfig;
@@ -7,6 +8,8 @@ interface StylePanelProps {
   onRunExport: () => void;
   canExport: boolean;
   isExporting: boolean;
+  fonts: FontPreset[];
+  onAddCustomFont: (font: FontPreset) => void;
 }
 
 export default function StylePanel({
@@ -14,8 +17,57 @@ export default function StylePanel({
   onChangeStyle,
   onRunExport,
   canExport,
-  isExporting
+  isExporting,
+  fonts,
+  onAddCustomFont
 }: StylePanelProps) {
+  const [isUploadingFont, setIsUploadingFont] = React.useState(false);
+
+  const handleCustomFontUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const fontTypeSelect = document.getElementById('custom-font-type-select') as HTMLSelectElement;
+    const fontType = fontTypeSelect?.value || 'unicode';
+
+    const formData = new FormData();
+    formData.append('font', file);
+    formData.append('name', file.name.replace(/\.[^/.]+$/, ""));
+    formData.append('fontType', fontType);
+
+    setIsUploadingFont(true);
+    try {
+      const res = await fetch('/api/upload-font', {
+        method: 'POST',
+        body: formData
+      });
+      const data = await res.json();
+      if (data.success && data.fontPreset) {
+        // Inject dynamically into document.head
+        const style = document.createElement('style');
+        style.id = `style-custom-${data.fontPreset.family}`;
+        style.innerHTML = `
+          @font-face {
+            font-family: '${data.fontPreset.family}';
+            src: url('${data.fontPreset.url}') format('truetype');
+            font-weight: normal;
+            font-style: normal;
+          }
+        `;
+        document.head.appendChild(style);
+
+        onAddCustomFont(data.fontPreset);
+        onChangeStyle({ fontFamily: data.fontPreset.family });
+      } else {
+        alert(data.error || 'Failed to upload font.');
+      }
+    } catch (err: any) {
+      console.error('Error uploading font:', err);
+      alert('Network error uploading font.');
+    } finally {
+      setIsUploadingFont(false);
+    }
+  };
   
   // Quick presets to easily style captions
   const applyPresetProfile = (profile: string) => {
@@ -177,19 +229,71 @@ export default function StylePanel({
           <select
             value={styleConfig.fontFamily}
             onChange={(e) => onChangeStyle({ fontFamily: e.target.value })}
-            className="w-full bg-slate-950 text-slate-200 rounded-md px-3 py-2 text-sm border border-slate-700 focus:outline-none focus:border-violet-500 text-xs cursor-pointer"
+            className="w-full bg-slate-950 text-slate-200 rounded-md px-3 py-2 border border-slate-700 focus:outline-none focus:border-violet-500 text-xs cursor-pointer"
           >
-            {FONT_PRESETS.map((font) => (
+            {fonts.map((font) => (
               <option key={font.id} value={font.family}>
-                {font.name} {font.isLocal ? '(Local .TTF)' : ''}
+                {font.name} {font.fontType === 'legacy' ? ' 🇱 (Legacy FM)' : ' 🇺 (Unicode)'}
               </option>
             ))}
           </select>
-          {styleConfig.fontFamily.startsWith('FM') && (
-            <p className="text-[10px] text-slate-500 font-sans mt-0.5 leading-relaxed bg-slate-950/30 px-2 py-1 rounded border border-slate-800/30">
-              💡 <strong>FM Custom Font Active:</strong> Perfect for traditional stylized print Sinhala designs. Uses local TrueType config!
-            </p>
-          )}
+          
+          {/* Dynamic Warnings / Notices */}
+          {(() => {
+            const selected = fonts.find(f => f.family === styleConfig.fontFamily);
+            if (!selected) return null;
+            
+            if (selected.fontType === 'legacy') {
+              const standardLegacy = ['FMYaso', 'FMMalithi'];
+              const isUnsupportedSet = !standardLegacy.includes(selected.family);
+              
+              return (
+                <div className="flex flex-col gap-1 text-[10px] mt-1 p-2 rounded border leading-normal bg-amber-950/20 border-amber-900/30 text-amber-300">
+                  <p>
+                    ⚠️ <strong>Legacy FM Font Active:</strong> Unicode characters are automatically converted to DlManel glyph format at rendering time.
+                  </p>
+                  {isUnsupportedSet && (
+                    <p className="mt-1 text-red-300 font-semibold border-t border-amber-900/20 pt-1">
+                      🛑 Note: This family ({selected.name}) falls outside the fully verified DL-Manel standard. Minor modifier/vowel overlapping may occur.
+                    </p>
+                  )}
+                </div>
+              );
+            } else {
+              return (
+                <p className="text-[10px] text-emerald-400 font-sans mt-1 leading-normal bg-emerald-950/20 px-2.5 py-1 rounded border border-emerald-900/30">
+                  ✨ <strong>Sinhala Unicode Active:</strong> Crystal clear, pixel-perfect modern rendering with full native layout support.
+                </p>
+              );
+            }
+          })()}
+
+          {/* Custom Font Upload Area */}
+          <div className="mt-2.5 p-2.5 rounded-lg border border-slate-800 bg-slate-950/40 flex flex-col gap-1.5">
+            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+              Upload Custom TTF/OTF Font
+            </span>
+            <div className="flex gap-2">
+              <select
+                id="custom-font-type-select"
+                className="bg-slate-900 border border-slate-700 rounded text-[10px] px-1.5 py-1 text-slate-300 focus:outline-none cursor-pointer"
+              >
+                <option value="unicode">Unicode 🇺</option>
+                <option value="legacy">FM Legacy 🇱</option>
+              </select>
+              <label className="flex-1 flex items-center justify-center gap-1 bg-violet-600/10 hover:bg-violet-600/20 border border-violet-500/20 hover:border-violet-500/40 text-violet-300 text-[10px] font-semibold rounded px-2 py-1.5 cursor-pointer transition-all">
+                <Upload className="h-3 w-3" />
+                <span>{isUploadingFont ? 'Uploading...' : 'Choose File'}</span>
+                <input
+                  type="file"
+                  accept=".ttf,.otf"
+                  className="hidden"
+                  onChange={handleCustomFontUpload}
+                  disabled={isUploadingFont}
+                />
+              </label>
+            </div>
+          </div>
         </div>
 
         <div className="flex flex-col gap-2">
