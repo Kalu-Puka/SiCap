@@ -11,6 +11,7 @@ interface TimelineProps {
   onAddSegment: () => void;
   onDeleteSegment: (id: string) => void;
   onPolishSegment?: (id: string, text: string, mode: 'polish' | 'translate') => Promise<string | undefined>;
+  isTranscribing?: boolean;
 }
 
 export default function Timeline({
@@ -20,7 +21,8 @@ export default function Timeline({
   onUpdateSegment,
   onAddSegment,
   onDeleteSegment,
-  onPolishSegment
+  onPolishSegment,
+  isTranscribing = false
 }: TimelineProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [tempText, setTempText] = useState('');
@@ -111,8 +113,33 @@ export default function Timeline({
       </div>
 
       {/* Grid Timeline List */}
-      <div className="flex-1 overflow-y-auto max-h-[300px] p-4 divide-y divide-slate-800/50">
-        {segments.length === 0 ? (
+      <div className="flex-1 overflow-y-auto max-h-[300px] p-4">
+        {isTranscribing ? (
+          <div className="flex flex-col gap-3 py-4 animate-pulse">
+            <div className="flex items-center justify-between text-xs text-slate-400 mb-2 px-1">
+              <span className="flex items-center gap-1.5 font-semibold text-violet-400">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Generating captions with Gemini AI...
+              </span>
+              <span className="font-mono text-[10px] text-slate-500 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">EST: 10s</span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
+              {[...Array(6)].map((_, i) => (
+                <div key={i} className="bg-slate-900/30 border border-slate-800/60 rounded-xl p-3.5 flex flex-col gap-3">
+                  <div className="flex justify-between items-center">
+                    <div className="h-3.5 bg-slate-800/80 rounded w-1/3"></div>
+                    <div className="h-3 bg-slate-800/50 rounded w-8"></div>
+                  </div>
+                  <div className="h-4 bg-slate-800/90 rounded w-3/4 my-1.5"></div>
+                  <div className="flex justify-between border-t border-slate-800/40 pt-2.5">
+                    <div className="h-2.5 bg-slate-800/60 rounded w-1/5"></div>
+                    <div className="h-2.5 bg-slate-800/60 rounded w-1/5"></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : segments.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <p className="font-sans text-slate-500 text-xs">No transcription segments generated yet.</p>
             <p className="font-sans text-slate-600 text-[11px] mt-1">Upload a video to automatically transcribe speech using Gemini AI.</p>

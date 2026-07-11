@@ -54,6 +54,48 @@ export default function VideoPlayer({
     return text;
   };
 
+  const renderHighlightedSegmentText = (seg: CaptionSegment) => {
+    const text = seg.text;
+    const words = text.trim().split(/\s+/);
+    if (words.length <= 1) {
+      return formatText(text);
+    }
+
+    const duration = seg.end - seg.start;
+    const elapsed = (currentTime * 1000) - seg.start;
+    const activeWordIndex = Math.min(
+      words.length - 1,
+      Math.max(0, Math.floor((elapsed / duration) * words.length))
+    );
+
+    return (
+      <span className="inline-flex flex-wrap justify-center gap-x-[0.25em]">
+        {words.map((word, idx) => {
+          const isHighlighted = idx === activeWordIndex;
+          const wordStyle: React.CSSProperties = {};
+          if (isHighlighted) {
+            if (styleConfig.gradientEnabled) {
+              wordStyle.backgroundImage = 'none';
+              wordStyle.WebkitBackgroundClip = 'unset';
+              wordStyle.WebkitTextFillColor = styleConfig.highlightColor || '#facc15';
+            } else {
+              wordStyle.color = styleConfig.highlightColor || '#facc15';
+            }
+          }
+          return (
+            <span
+              key={idx}
+              style={wordStyle}
+              className="inline-block transition-colors duration-100"
+            >
+              {formatText(word)}
+            </span>
+          );
+        })}
+      </span>
+    );
+  };
+
   // Synchronize playback state
   useEffect(() => {
     const video = videoRef.current;
@@ -88,7 +130,11 @@ export default function VideoPlayer({
     const currentMs = currentTime * 1000;
     const active = segments.find(seg => currentMs >= seg.start && currentMs <= seg.end);
     
-    if (active && active.id !== activeSegment?.id) {
+    const activeTextChanged = active?.text !== activeSegment?.text;
+    const activeIdChanged = active?.id !== activeSegment?.id;
+    const activeTimingChanged = active?.start !== activeSegment?.start || active?.end !== activeSegment?.end;
+
+    if (active && (activeIdChanged || activeTextChanged || activeTimingChanged)) {
       setPrevSegment(activeSegment);
       setActiveSegment(active);
     } else if (!active && activeSegment) {
@@ -268,7 +314,7 @@ export default function VideoPlayer({
                         className="animate-apple-keynote inline-block transform"
                         style={getSubtitleStyle()}
                       >
-                        {formatText(activeSegment.text)}
+                        {renderHighlightedSegmentText(activeSegment)}
                       </span>
                     )}
                   </div>
@@ -290,7 +336,7 @@ export default function VideoPlayer({
                       }`}
                       style={getSubtitleStyle()}
                     >
-                      {formatText(activeSegment.text)}
+                      {renderHighlightedSegmentText(activeSegment)}
                     </span>
                   )
                 )}
@@ -392,19 +438,19 @@ export default function VideoPlayer({
                   </p>
                 </div>
 
-                {/* AI Captioning Mode Dropdown / Button Options */}
-                <div className="mt-2 flex flex-col items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                  <span className="font-sans text-[10px] font-semibold tracking-wider text-slate-500 uppercase">
+                {/* AI Captioning Mode Segmented Control */}
+                <div className="mt-2.5 flex flex-col items-center gap-2 w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
+                  <span className="font-sans text-[10px] font-bold tracking-wider text-slate-500 uppercase">
                     AI Subtitle Generation Mode
                   </span>
-                  <div className="flex flex-wrap justify-center gap-1.5 p-1 rounded-lg bg-slate-950 border border-slate-800">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 p-1 rounded-xl bg-slate-950 border border-slate-800 w-full">
                     <button
                       type="button"
                       onClick={() => onTranscribeModeChange('sinhala-direct')}
-                      className={`px-3 py-1.5 rounded-md font-sans text-[10px] font-semibold transition-all cursor-pointer ${
+                      className={`py-2 px-1.5 rounded-lg font-sans text-[11px] font-semibold transition-all cursor-pointer text-center ${
                         transcribeMode === 'sinhala-direct'
                           ? 'bg-violet-600 text-white shadow-md'
-                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
                       }`}
                     >
                       🗣️ Sinhala ➔ Sinhala
@@ -412,21 +458,21 @@ export default function VideoPlayer({
                     <button
                       type="button"
                       onClick={() => onTranscribeModeChange('english-to-sinhala')}
-                      className={`px-3 py-1.5 rounded-md font-sans text-[10px] font-semibold transition-all cursor-pointer ${
+                      className={`py-2 px-1.5 rounded-lg font-sans text-[11px] font-semibold transition-all cursor-pointer text-center ${
                         transcribeMode === 'english-to-sinhala'
                           ? 'bg-violet-600 text-white shadow-md'
-                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
                       }`}
                     >
-                      🇬🇧 English ➔ Sinhala Translate
+                      🇬🇧 English ➔ Sinhala
                     </button>
                     <button
                       type="button"
                       onClick={() => onTranscribeModeChange('english-direct')}
-                      className={`px-3 py-1.5 rounded-md font-sans text-[10px] font-semibold transition-all cursor-pointer ${
+                      className={`py-2 px-1.5 rounded-lg font-sans text-[11px] font-semibold transition-all cursor-pointer text-center ${
                         transcribeMode === 'english-direct'
                           ? 'bg-violet-600 text-white shadow-md'
-                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
                       }`}
                     >
                       🇬🇧 English ➔ English

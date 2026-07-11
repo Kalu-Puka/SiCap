@@ -18,6 +18,7 @@ export interface StyleConfig {
   gradientStart: string;
   gradientEnd: string;
   animationPreset: string;
+  highlightColor: string;
 }
 
 export interface ExportJob {

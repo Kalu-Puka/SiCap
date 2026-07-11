@@ -4,7 +4,6 @@ import Header from './components/Header';
 import VideoPlayer from './components/VideoPlayer';
 import StylePanel from './components/StylePanel';
 import Timeline from './components/Timeline';
-import ExportQueue from './components/ExportQueue';
 import { CaptionSegment, StyleConfig, ExportJob, FontPreset, FONT_PRESETS } from './types';
 
 export default function App() {
@@ -15,6 +14,7 @@ export default function App() {
   const [currentTime, setCurrentTime] = useState(0);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState<number | null>(null);
   const [jobs, setJobs] = useState<ExportJob[]>([]);
   const [tutorialOpen, setTutorialOpen] = useState(false);
   const [apiConnected, setApiConnected] = useState(true);
@@ -70,7 +70,8 @@ export default function App() {
     gradientEnabled: true,
     gradientStart: '#c084fc', // Light purple
     gradientEnd: '#6366f1',   // Indigo
-    animationPreset: 'apple-keynote' // Apple Event Kinetic Pop
+    animationPreset: 'apple-keynote', // Apple Event Kinetic Pop
+    highlightColor: '#facc15' // default yellow active karaoke word highlight
   });
 
   // Pull export jobs and check API status on mount
@@ -220,10 +221,56 @@ export default function App() {
     setSegments(prev => prev.filter(seg => seg.id !== id));
   };
 
+  const formatTimeSRT = (ms: number): string => {
+    const totalSeconds = Math.floor(ms / 1000);
+    const milliseconds = Math.floor(ms % 1000);
+    const seconds = totalSeconds % 60;
+    const minutes = Math.floor(totalSeconds / 60) % 60;
+    const hours = Math.floor(totalSeconds / 3600);
+
+    const pad = (num: number, size: number) => num.toString().padStart(size, '0');
+    return `${pad(hours, 2)}:${pad(minutes, 2)}:${pad(seconds, 2)},${pad(milliseconds, 3)}`;
+  };
+
+  const handleExportSRT = () => {
+    if (segments.length === 0) return;
+    const srtContent = segments
+      .map((seg, index) => {
+        return `${index + 1}\n${formatTimeSRT(seg.start)} --> ${formatTimeSRT(seg.end)}\n${seg.text}\n`;
+      })
+      .join('\n');
+
+    const blob = new Blob([srtContent], { type: 'text/srt;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'sicaps_subtitles.srt';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadExport = async (jobId: string) => {
+    try {
+      const res = await fetch(`/api/export/${jobId}/file`);
+      if (!res.ok) throw new Error('Export download failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `sicaps_${jobId}.mp4`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      console.error('Download error:', err);
+      setErrorMessage(`Failed to download burned video: ${err.message}`);
+    }
+  };
+
   const handleRunExport = async () => {
     const exportSrc = serverVideoUrl || videoUrl;
     if (!exportSrc || segments.length === 0) return;
     setIsExporting(true);
+    setExportProgress(0);
 
     try {
       const res = await fetch('/api/export', {
@@ -260,16 +307,44 @@ export default function App() {
 
       const data = await res.json();
       if (data.success) {
-        // Fetch jobs immediately to show the new pending job
-        await fetchJobs();
+        const jobId = data.jobId;
+        // Start polling the job status inline
+        const pollInterval = setInterval(async () => {
+          try {
+            const statusRes = await fetch(`/api/export/status/${jobId}`);
+            if (!statusRes.ok) return;
+            const statusData = await statusRes.json();
+            if (statusData.success && statusData.job) {
+              const job = statusData.job;
+              setExportProgress(job.progress || 0);
+
+              if (job.status === 'completed') {
+                clearInterval(pollInterval);
+                await downloadExport(jobId);
+                setIsExporting(false);
+                setExportProgress(null);
+                fetchJobs(); // Update background list
+              } else if (job.status === 'failed') {
+                clearInterval(pollInterval);
+                setIsExporting(false);
+                setExportProgress(null);
+                setErrorMessage(job.error || 'Video export rendering failed on server.');
+              }
+            }
+          } catch (pollErr) {
+            console.error('Error polling export job:', pollErr);
+          }
+        }, 1200);
       } else {
         setErrorMessage(data.error || 'Failed to queue rendering job.');
+        setIsExporting(false);
+        setExportProgress(null);
       }
     } catch (e: any) {
       console.error('Export Error:', e);
       setErrorMessage(e.message || 'Failed to connect to export server.');
-    } finally {
       setIsExporting(false);
+      setExportProgress(null);
     }
   };
 
@@ -355,14 +430,7 @@ export default function App() {
               onAddSegment={handleAddSegment}
               onDeleteSegment={handleDeleteSegment}
               onPolishSegment={handlePolishSegment}
-            />
-          </div>
-
-          {/* Bottom block: Server-Side Export Queue */}
-          <div className="flex-1">
-            <ExportQueue
-              jobs={jobs}
-              onRefreshJobs={fetchJobs}
+              isTranscribing={isTranscribing}
             />
           </div>
 
@@ -375,6 +443,8 @@ export default function App() {
           onRunExport={handleRunExport}
           canExport={!!videoUrl && segments.length > 0}
           isExporting={isExporting}
+          exportProgress={exportProgress}
+          onExportSRT={handleExportSRT}
           fonts={allFonts}
           onAddCustomFont={(newFont) => setCustomFonts(prev => [...prev, newFont])}
         />

@@ -334,7 +334,7 @@ setInterval(() => {
           // Execute actual FFmpeg command to burn subtitles
           console.log(`Starting real subtitle burn-in for job ${job.id}...`);
           ffmpeg(originalPath)
-            .videoFilters(`subtitles=${assPath}:fontsdir=${fontDir}`)
+            .videoFilters(`subtitles=exports/${assFilename}:fontsdir=public/fonts`)
             .videoCodec('libx264')
             .audioCodec('copy')
             .on('start', (cmdline) => {
@@ -710,6 +710,30 @@ app.get('/api/export/status/:jobId', (req, res) => {
 // API: List all jobs
 app.get('/api/export/jobs', (req, res) => {
   res.json({ success: true, jobs: Array.from(exportJobs.values()).reverse() });
+});
+
+// API: Get/Download exported file safely via fetch (prevents authentication check redirects on other browsers)
+app.get('/api/export/:jobId/file', (req, res) => {
+  const job = exportJobs.get(req.params.jobId);
+  if (!job) {
+    return res.status(404).json({ error: 'Job not found.' });
+  }
+  if (job.status !== 'completed' || !job.outputUrl) {
+    return res.status(400).json({ error: 'Job is not completed yet.' });
+  }
+
+  const filename = path.basename(job.outputUrl);
+  const filePath = path.join(exportDir, filename);
+
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'Physical video file not found on server.' });
+  }
+
+  res.setHeader('Content-Type', 'video/mp4');
+  res.setHeader('Content-Disposition', `attachment; filename="sicaps_${req.params.jobId}.mp4"`);
+
+  const stream = fs.createReadStream(filePath);
+  stream.pipe(res);
 });
 
 // Serve static resources

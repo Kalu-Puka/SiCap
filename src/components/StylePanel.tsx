@@ -1,5 +1,6 @@
 import { Type, Sparkles, Sliders, Palette, Play, Upload } from 'lucide-react';
 import { StyleConfig, FontPreset, ANIMATION_PRESETS } from '../types';
+import { unicodeToDlManel } from 'sinhala-unicode-coverter';
 import React from 'react';
 
 interface StylePanelProps {
@@ -8,6 +9,8 @@ interface StylePanelProps {
   onRunExport: () => void;
   canExport: boolean;
   isExporting: boolean;
+  exportProgress: number | null;
+  onExportSRT: () => void;
   fonts: FontPreset[];
   onAddCustomFont: (font: FontPreset) => void;
 }
@@ -18,6 +21,8 @@ export default function StylePanel({
   onRunExport,
   canExport,
   isExporting,
+  exportProgress,
+  onExportSRT,
   fonts,
   onAddCustomFont
 }: StylePanelProps) {
@@ -229,13 +234,28 @@ export default function StylePanel({
           <select
             value={styleConfig.fontFamily}
             onChange={(e) => onChangeStyle({ fontFamily: e.target.value })}
-            className="w-full bg-slate-950 text-slate-200 rounded-md px-3 py-2 border border-slate-700 focus:outline-none focus:border-violet-500 text-xs cursor-pointer"
+            className="w-full bg-slate-950 text-slate-200 rounded-md px-3 py-2 border border-slate-700 focus:outline-none focus:border-violet-500 text-xs cursor-pointer font-sans"
           >
-            {fonts.map((font) => (
-              <option key={font.id} value={font.family}>
-                {font.name} {font.fontType === 'legacy' ? ' 🇱 (Legacy FM)' : ' 🇺 (Unicode)'}
-              </option>
-            ))}
+            {fonts.map((font) => {
+              let sampleText = "සිංහල";
+              if (font.fontType === 'legacy') {
+                try {
+                  sampleText = unicodeToDlManel("සිංහල");
+                } catch {
+                  sampleText = "සිංහල";
+                }
+              }
+              return (
+                <option 
+                  key={font.id} 
+                  value={font.family} 
+                  style={{ fontFamily: font.family }}
+                  className="py-1"
+                >
+                  {sampleText} — {font.name} {font.fontType === 'legacy' ? ' 🇱 (FM)' : ' 🇺 (Unicode)'}
+                </option>
+              );
+            })}
           </select>
           
           {/* Dynamic Warnings / Notices */}
@@ -405,6 +425,26 @@ export default function StylePanel({
           </div>
         </div>
 
+        {/* Word Highlight Color */}
+        <div className="flex flex-col gap-1.5 p-2.5 rounded-lg bg-violet-600/5 border border-violet-500/10">
+          <div className="flex justify-between items-center">
+            <label className="text-[11px] text-violet-300 font-semibold flex items-center gap-1">
+              <Sparkles className="h-3 w-3 text-violet-400" />
+              Active Word Highlight
+            </label>
+            <span className="text-[9px] text-slate-500 font-mono">Karaoke Accent</span>
+          </div>
+          <div className="flex items-center gap-2 bg-slate-950 rounded-md px-3 py-2 border border-slate-700">
+            <input
+              type="color"
+              value={styleConfig.highlightColor || '#facc15'}
+              onChange={(e) => onChangeStyle({ highlightColor: e.target.value })}
+              className="w-6 h-6 rounded bg-transparent border-none cursor-pointer"
+            />
+            <span className="font-mono text-xs text-slate-300 uppercase">{styleConfig.highlightColor || '#facc15'}</span>
+          </div>
+        </div>
+
         <div className="grid grid-cols-2 gap-3 mt-1">
           <div className="flex flex-col gap-1.5">
             <div className="flex justify-between text-[10px]">
@@ -472,7 +512,7 @@ export default function StylePanel({
         )}
       </div>
 
-      <div className="mt-auto pt-4 border-t border-slate-800">
+      <div className="mt-auto pt-4 border-t border-slate-800 flex flex-col gap-2">
         <button
           onClick={onRunExport}
           disabled={!canExport || isExporting}
@@ -485,7 +525,9 @@ export default function StylePanel({
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
               </svg>
-              <span>Queueing Export Job...</span>
+              <span>
+                {exportProgress !== null ? `Exporting ${exportProgress}%...` : 'Preparing Render...'}
+              </span>
             </>
           ) : (
             <>
@@ -493,6 +535,15 @@ export default function StylePanel({
               <span>Export Video</span>
             </>
           )}
+        </button>
+
+        <button
+          onClick={onExportSRT}
+          disabled={!canExport || isExporting}
+          className="w-full flex items-center justify-center gap-1.5 rounded-full border border-slate-700 hover:border-slate-500 bg-slate-900/50 hover:bg-slate-900 text-slate-300 font-sans text-xs py-2 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+          id="export-srt-btn"
+        >
+          <span>Export SRT Subtitles</span>
         </button>
       </div>
     </aside>
