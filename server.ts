@@ -305,24 +305,35 @@ function convertToLegacy(text: string): string {
 }
 
 // Helper to generate ASS subtitle content
-function generateAssSubtitles(segments: any[], style: any): string {
+function generateAssSubtitles(segments: any[], style: any, playResX = 1280, playResY = 720): string {
   const isLegacy = legacyFontFamilies.includes(style.fontFamily);
   
   // Convert style panel parameters dynamically
   const textColorAss = hexToAssColor(style.textColor, 255);
   const strokeColorAss = hexToAssColor(style.strokeColor, 255);
-  const shadowColorAss = hexToAssColor(style.shadowColor, 255);
   
+  // BackColour defines background card color if BorderStyle is 3 (opaque box)
+  const backColorAss = style.backgroundColor ? hexToAssColor(style.backgroundColor, 128) : '&H80000000';
+  const borderStyle = style.backgroundCardEnabled !== false ? 3 : 1;
+
+  // Calculate pixel positioning based on percentage
+  const posX = style.positionX !== undefined ? style.positionX : 50;
+  const posY = style.positionY !== undefined ? style.positionY : 80;
+  const xPixel = Math.round((posX / 100) * playResX);
+  const yPixel = Math.round((posY / 100) * playResY);
+
+  const posTag = `\\an5\\pos(${xPixel},${yPixel})`;
+
   let ass = `[Script Info]
 Title: Sinhala Captions Subtitles
 ScriptType: v4.00+
 Collisions: Normal
-PlayResX: 1280
-PlayResY: 720
+PlayResX: ${playResX}
+PlayResY: ${playResY}
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,${style.fontFamily},${style.fontSize},${textColorAss},&H000000FF,${strokeColorAss},${shadowColorAss},0,0,0,0,100,100,0,0,1,${style.strokeWidth},${style.shadowBlur},2,10,10,10,1
+Style: Default,${style.fontFamily},${style.fontSize},${textColorAss},&H000000FF,${strokeColorAss},${backColorAss},0,0,0,0,100,100,0,0,${borderStyle},${style.strokeWidth},${style.shadowBlur},5,10,10,10,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -338,8 +349,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
       return `${h}:${m}:${s}.${cs}`;
     };
 
-    const startStr = formatTime(seg.start);
-    const endStr = formatTime(seg.end);
+    const durationMs = seg.end - seg.start;
+    const animPresetTags = getAssAnimationTags(style.animationPreset, durationMs);
+    const animTags = `{\\an5\\pos(${xPixel},${yPixel})${animPresetTags}}`;
     
     // Apply Unicode to Legacy conversion if font is legacy
     let text = seg.text;
@@ -351,9 +363,34 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
       }
     }
 
-    const durationMs = seg.end - seg.start;
-    const animTags = getAssAnimationTags(style.animationPreset, durationMs);
-    
+    if (style.highlightEnabled !== false && durationMs > 0) {
+      const words = text.trim().split(/\s+/);
+      if (words.length > 1) {
+        const textColorAssAbgr = textColorAss.replace('&H', '').slice(2);
+        const highlightColorAss = hexToAssColor(style.highlightColor || '#facc15', 255);
+        const highlightColorAssAbgr = highlightColorAss.replace('&H', '').slice(2);
+        
+        words.forEach((word, idx) => {
+          const subStart = seg.start + (idx / words.length) * durationMs;
+          const subEnd = seg.start + ((idx + 1) / words.length) * durationMs;
+          const startStr = formatTime(subStart);
+          const endStr = formatTime(subEnd);
+          
+          const lineWords = words.map((w, wIdx) => {
+            if (wIdx === idx) {
+              return `{\\1c&H${highlightColorAssAbgr}&}${w}{\\1c&H${textColorAssAbgr}&}`;
+            }
+            return w;
+          });
+          const lineText = lineWords.join(' ');
+          ass += `Dialogue: 0,${startStr},${endStr},Default,,0,0,0,,${animTags}${lineText}\n`;
+        });
+        return;
+      }
+    }
+
+    const startStr = formatTime(seg.start);
+    const endStr = formatTime(seg.end);
     ass += `Dialogue: 0,${startStr},${endStr},Default,,0,0,0,,${animTags}${text}\n`;
   });
 
@@ -384,10 +421,6 @@ setInterval(() => {
       job.remotionCommand = remotionCmd;
 
       try {
-        // Save real subtitle file
-        const assContent = generateAssSubtitles(job.segments, job.styleConfig);
-        fs.writeFileSync(assPath, assContent);
-        
         if (!fs.existsSync(originalPath)) {
           throw new Error(`Original video file not found at: ${originalPath}`);
         }
@@ -401,34 +434,60 @@ setInterval(() => {
           job.progress = 100;
           job.outputUrl = `/exports/${outputFilename}`;
         } else {
-          // Execute actual FFmpeg command to burn subtitles
-          console.log(`Starting real subtitle burn-in for job ${job.id}...`);
-          ffmpeg(originalPath)
-            .videoFilters(`subtitles=exports/${assFilename}:fontsdir=public/fonts`)
-            .videoCodec('libx264')
-            .audioCodec('copy')
-            .on('start', (cmdline) => {
-              console.log(`FFmpeg started with: ${cmdline}`);
-            })
-            .on('progress', (progress) => {
-              if (progress.percent) {
-                job.progress = Math.min(99, Math.round(progress.percent));
-              } else {
-                job.progress = Math.min(95, job.progress + 2);
+          // Probe video size first
+          ffmpeg.ffprobe(originalPath, (probeErr, metadata) => {
+            let width = 1280;
+            let height = 720;
+            if (!probeErr && metadata && metadata.streams) {
+              const videoStream = metadata.streams.find(s => s.codec_type === 'video');
+              if (videoStream && videoStream.width && videoStream.height) {
+                width = videoStream.width;
+                height = videoStream.height;
+                console.log(`[සිCaps Prober] Probed video resolution: ${width}x${height}`);
               }
-            })
-            .on('end', () => {
-              console.log(`FFmpeg finished burning subtitles for job ${job.id}`);
-              job.status = 'completed';
-              job.progress = 100;
-              job.outputUrl = `/exports/${outputFilename}`;
-            })
-            .on('error', (err) => {
-              console.error(`FFmpeg error during burn-in for job ${job.id}:`, err.message);
+            } else {
+              console.warn('[සිCaps Prober] Failed to probe size, falling back to 1280x720:', probeErr);
+            }
+
+            try {
+              // Save real subtitle file with probed dimensions
+              const assContent = generateAssSubtitles(job.segments, job.styleConfig, width, height);
+              fs.writeFileSync(assPath, assContent);
+
+              // Execute actual FFmpeg command to burn subtitles
+              console.log(`Starting real subtitle burn-in for job ${job.id} at resolution ${width}x${height}...`);
+              ffmpeg(originalPath)
+                .videoFilters(`subtitles=exports/${assFilename}:fontsdir=public/fonts`)
+                .videoCodec('libx264')
+                .audioCodec('copy')
+                .on('start', (cmdline) => {
+                  console.log(`FFmpeg started with: ${cmdline}`);
+                })
+                .on('progress', (progress) => {
+                  if (progress.percent) {
+                    job.progress = Math.min(99, Math.round(progress.percent));
+                  } else {
+                    job.progress = Math.min(95, job.progress + 2);
+                  }
+                })
+                .on('end', () => {
+                  console.log(`FFmpeg finished burning subtitles for job ${job.id}`);
+                  job.status = 'completed';
+                  job.progress = 100;
+                  job.outputUrl = `/exports/${outputFilename}`;
+                })
+                .on('error', (err) => {
+                  console.error(`FFmpeg error during burn-in for job ${job.id}:`, err.message);
+                  job.status = 'failed';
+                  job.error = err.message || 'FFmpeg encoding failed';
+                })
+                .save(finalOutputPath);
+            } catch (innerErr: any) {
+              console.error(`Export queue inner error for job ${job.id}:`, innerErr);
               job.status = 'failed';
-              job.error = err.message || 'FFmpeg encoding failed';
-            })
-            .save(finalOutputPath);
+              job.error = innerErr.message || 'Rendering failed';
+            }
+          });
         }
         
       } catch (e: any) {

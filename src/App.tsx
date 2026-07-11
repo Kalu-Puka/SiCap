@@ -71,7 +71,11 @@ export default function App() {
     gradientStart: '#c084fc', // Light purple
     gradientEnd: '#6366f1',   // Indigo
     animationPreset: 'apple-keynote', // Apple Event Kinetic Pop
-    highlightColor: '#facc15' // default yellow active karaoke word highlight
+    highlightColor: '#facc15', // default yellow active karaoke word highlight
+    backgroundCardEnabled: true,
+    highlightEnabled: true,
+    positionX: 50,
+    positionY: 80
   });
 
   // Pull export jobs and check API status on mount
@@ -222,14 +226,13 @@ export default function App() {
   };
 
   const formatTimeSRT = (ms: number): string => {
-    const totalSeconds = Math.floor(ms / 1000);
-    const milliseconds = Math.floor(ms % 1000);
-    const seconds = totalSeconds % 60;
-    const minutes = Math.floor(totalSeconds / 60) % 60;
-    const hours = Math.floor(totalSeconds / 3600);
+    const h = Math.floor(ms / 3600000);
+    const m = Math.floor(ms / 60000) % 60;
+    const s = Math.floor(ms / 1000) % 60;
+    const mmm = Math.floor(ms % 1000);
 
     const pad = (num: number, size: number) => num.toString().padStart(size, '0');
-    return `${pad(hours, 2)}:${pad(minutes, 2)}:${pad(seconds, 2)},${pad(milliseconds, 3)}`;
+    return `${pad(h, 2)}:${pad(m, 2)}:${pad(s, 2)},${pad(mmm, 3)}`;
   };
 
   const handleExportSRT = () => {
@@ -418,6 +421,7 @@ export default function App() {
             transcribeMode={transcribeMode}
             onTranscribeModeChange={setTranscribeMode}
             fonts={allFonts}
+            onChangeStyle={(partial) => setStyleConfig(prev => ({ ...prev, ...partial }))}
           />
 
           {/* Middle block: Interactive segments timeline rows */}

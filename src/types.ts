@@ -19,6 +19,10 @@ export interface StyleConfig {
   gradientEnd: string;
   animationPreset: string;
   highlightColor: string;
+  backgroundCardEnabled: boolean;
+  highlightEnabled: boolean;
+  positionX: number; // percentage (0-100)
+  positionY: number; // percentage (0-100)
 }
 
 export interface ExportJob {

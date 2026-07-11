@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { Play, Pause, Upload, Volume2, Maximize, RefreshCw, Layers } from 'lucide-react';
+import { Play, Pause, Upload, Volume2, Maximize, RefreshCw, Layers, AlertCircle } from 'lucide-react';
 import { CaptionSegment, StyleConfig, FONT_PRESETS, FontPreset } from '../types';
 import { unicodeToDlManel } from 'sinhala-unicode-coverter';
 
@@ -14,16 +14,16 @@ interface VideoPlayerProps {
   transcribeMode: 'sinhala-direct' | 'english-to-sinhala' | 'english-direct';
   onTranscribeModeChange: (mode: 'sinhala-direct' | 'english-to-sinhala' | 'english-direct') => void;
   fonts?: FontPreset[];
+  onChangeStyle?: (partial: Partial<StyleConfig>) => void;
 }
 
 // Fast cache for legacy font conversion
 const conversionCache = new Map<string, string>();
 
 function convertToLegacy(text: string): string {
-  // Safeguard: Sinhala Unicode block is U+0D80 to U+0DFF
   const hasSinhalaUnicode = /[\u0d80-\u0dff]/.test(text);
   if (!hasSinhalaUnicode) {
-    console.warn(`[සිCaps Safeguard] convertToLegacy() was called on text that lacks Sinhala Unicode characters (possibly already converted or non-Sinhala): "${text}"`);
+    console.warn(`[සිCaps Safeguard] convertToLegacy() was called on text that lacks Sinhala Unicode characters: "${text}"`);
     return text;
   }
   return unicodeToDlManel(text);
@@ -39,15 +39,28 @@ export default function VideoPlayer({
   isTranscribing,
   transcribeMode,
   onTranscribeModeChange,
-  fonts
+  fonts,
+  onChangeStyle
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const captionRef = useRef<HTMLDivElement | null>(null);
+
   const [isPlaying, setIsPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(0.8);
   const [activeSegment, setActiveSegment] = useState<CaptionSegment | null>(null);
   const [prevSegment, setPrevSegment] = useState<CaptionSegment | null>(null);
   const [dragActive, setDragActive] = useState(false);
+
+  // Layout sizing states for precise auto-scaling & dragging
+  const [videoRenderedWidth, setVideoRenderedWidth] = useState<number>(0);
+  const [videoRenderedHeight, setVideoRenderedHeight] = useState<number>(0);
+  const [autoScale, setAutoScale] = useState<number>(1);
+  
+  // Font checking & dragging states
+  const [fontLoadError, setFontLoadError] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
 
   const isAudioFile = !!videoUrl?.match(/\.(mp3|wav|m4a|aac|ogg|flac|mpeg)(?:\?|$)/i);
   
@@ -75,6 +88,12 @@ export default function VideoPlayer({
 
   const renderHighlightedSegmentText = (seg: CaptionSegment) => {
     const text = seg.text;
+    
+    // Support bypassing highlight effect completely separate from color
+    if (styleConfig.highlightEnabled === false) {
+      return formatText(text);
+    }
+
     const words = text.trim().split(/\s+/);
     if (words.length <= 1) {
       return formatText(text);
@@ -115,52 +134,156 @@ export default function VideoPlayer({
     );
   };
 
-  // Synchronize playback state
+  // Font verification listener (FontFace API)
+  useEffect(() => {
+    setFontLoadError(null);
+    const family = styleConfig.fontFamily;
+    if (!family || family === 'Inter' || family === 'sans-serif') return;
+
+    const fontDesc = `12px "${family}"`;
+    const checkFontLoad = () => {
+      try {
+        const isLoaded = document.fonts.check(fontDesc);
+        if (!isLoaded) {
+          document.fonts.ready.then(() => {
+            if (!document.fonts.check(fontDesc)) {
+              setFontLoadError(`Font "${family}" failed to load on this browser. Raw Latin characters may show up instead of Sinhala shapes. Try uploading a custom .ttf file.`);
+            }
+          }).catch((err) => {
+            console.error("FontFace ready check error:", err);
+          });
+        }
+      } catch (err) {
+        console.warn("document.fonts API is not supported in this browser:", err);
+      }
+    };
+
+    checkFontLoad();
+  }, [styleConfig.fontFamily]);
+
+  // Handle active word/segment selection & play state with high-resolution frame ticks
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
-    const handleTimeUpdate = () => {
-      setCurrentTime(video.currentTime);
+    let rafId: number;
+    const updateTimeLoop = () => {
+      if (video) {
+        const t = video.currentTime;
+        setCurrentTime(t);
+
+        const currentMs = t * 1000;
+        const active = segments.find(seg => currentMs >= seg.start && currentMs <= seg.end);
+        
+        const activeTextChanged = active?.text !== activeSegment?.text;
+        const activeIdChanged = active?.id !== activeSegment?.id;
+        const activeTimingChanged = active?.start !== activeSegment?.start || active?.end !== activeSegment?.end;
+
+        if (active && (activeIdChanged || activeTextChanged || activeTimingChanged)) {
+          setPrevSegment(activeSegment);
+          setActiveSegment(active);
+        } else if (!active && activeSegment) {
+          setPrevSegment(activeSegment);
+          setActiveSegment(null);
+        }
+      }
+      rafId = requestAnimationFrame(updateTimeLoop);
     };
 
-    const handleDurationChange = () => {
-      setDuration(video.duration);
-    };
+    if (isPlaying) {
+      rafId = requestAnimationFrame(updateTimeLoop);
+    } else {
+      // Direct update when paused
+      const t = video.currentTime;
+      const currentMs = t * 1000;
+      const active = segments.find(seg => currentMs >= seg.start && currentMs <= seg.end);
+      if (active) {
+        setActiveSegment(active);
+      } else {
+        setActiveSegment(null);
+      }
+    }
 
+    return () => {
+      cancelAnimationFrame(rafId);
+    };
+  }, [isPlaying, segments, activeSegment, setCurrentTime]);
+
+  // Synchronize playback basic details
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const handleDurationChange = () => setDuration(video.duration);
     const handlePlay = () => setIsPlaying(true);
     const handlePause = () => setIsPlaying(false);
 
-    video.addEventListener('timeupdate', handleTimeUpdate);
     video.addEventListener('durationchange', handleDurationChange);
     video.addEventListener('play', handlePlay);
     video.addEventListener('pause', handlePause);
 
     return () => {
-      video.removeEventListener('timeupdate', handleTimeUpdate);
       video.removeEventListener('durationchange', handleDurationChange);
       video.removeEventListener('play', handlePlay);
       video.removeEventListener('pause', handlePause);
     };
-  }, [videoUrl, setCurrentTime]);
+  }, [videoUrl]);
 
-  // Handle active word/segment selection for kinetic overlay
+  // Dynamic Video bounds checking for letterbox exclusions
   useEffect(() => {
-    const currentMs = currentTime * 1000;
-    const active = segments.find(seg => currentMs >= seg.start && currentMs <= seg.end);
-    
-    const activeTextChanged = active?.text !== activeSegment?.text;
-    const activeIdChanged = active?.id !== activeSegment?.id;
-    const activeTimingChanged = active?.start !== activeSegment?.start || active?.end !== activeSegment?.end;
+    const video = videoRef.current;
+    if (!video) return;
 
-    if (active && (activeIdChanged || activeTextChanged || activeTimingChanged)) {
-      setPrevSegment(activeSegment);
-      setActiveSegment(active);
-    } else if (!active && activeSegment) {
-      setPrevSegment(activeSegment);
-      setActiveSegment(null);
-    }
-  }, [currentTime, segments, activeSegment]);
+    const updateRenderedSize = () => {
+      const { videoWidth, videoHeight, clientWidth, clientHeight } = video;
+      if (!videoWidth || !videoHeight || !clientWidth || !clientHeight) return;
+
+      const containerRatio = clientWidth / clientHeight;
+      const videoRatio = videoWidth / videoHeight;
+
+      let renderedW = clientWidth;
+      let renderedH = clientHeight;
+
+      if (videoRatio > containerRatio) {
+        renderedH = clientWidth / videoRatio;
+      } else {
+        renderedW = clientHeight * videoRatio;
+      }
+
+      setVideoRenderedWidth(renderedW);
+      setVideoRenderedHeight(renderedH);
+    };
+
+    const observer = new ResizeObserver(updateRenderedSize);
+    observer.observe(video);
+    video.addEventListener('loadedmetadata', updateRenderedSize);
+
+    return () => {
+      observer.disconnect();
+      video.removeEventListener('loadedmetadata', updateRenderedSize);
+    };
+  }, [videoUrl]);
+
+  // Auto-fit dynamic text scaling to prevent screen overflows
+  useEffect(() => {
+    const captionEl = captionRef.current;
+    if (!captionEl) return;
+
+    setAutoScale(1);
+
+    const frameId = requestAnimationFrame(() => {
+      const parentWidth = videoRenderedWidth || captionEl.parentElement?.clientWidth || 500;
+      const maxWidth = parentWidth * 0.9; // 90% of video width safe area
+      const currentWidth = captionEl.scrollWidth;
+
+      if (currentWidth > maxWidth) {
+        const ratio = maxWidth / currentWidth;
+        setAutoScale(Math.max(0.4, ratio)); // floor at 40% font scaling
+      }
+    });
+
+    return () => cancelAnimationFrame(frameId);
+  }, [activeSegment, styleConfig.fontSize, styleConfig.fontFamily, videoRenderedWidth]);
 
   const togglePlay = () => {
     const video = videoRef.current;
@@ -198,7 +321,6 @@ export default function VideoPlayer({
     }
   };
 
-  // Drag-and-drop file upload handlers
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -231,14 +353,12 @@ export default function VideoPlayer({
     }
   };
 
-  // Build the dynamic CSS styles for subtitle captions
   const getSubtitleStyle = () => {
-    const selectedFont = allFonts.find(f => f.family === styleConfig.fontFamily);
     const styles: React.CSSProperties = {
       fontFamily: styleConfig.fontFamily,
-      fontSize: `${styleConfig.fontSize}px`,
-      WebkitTextStroke: `${styleConfig.strokeWidth}px ${styleConfig.strokeColor}`,
-      textShadow: styleConfig.shadowBlur > 0 ? `0 0 ${styleConfig.shadowBlur}px ${styleConfig.shadowColor}` : 'none',
+      fontSize: `${styleConfig.fontSize * autoScale}px`,
+      WebkitTextStroke: `${styleConfig.strokeWidth * autoScale}px ${styleConfig.strokeColor}`,
+      textShadow: styleConfig.shadowBlur > 0 ? `0 0 ${styleConfig.shadowBlur * autoScale}px ${styleConfig.shadowColor}` : 'none',
     };
 
     if (styleConfig.gradientEnabled) {
@@ -259,6 +379,41 @@ export default function VideoPlayer({
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(ms).padStart(2, '0')}`;
   };
 
+  // Pointer position drag mapping
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return; // Left pointer button only
+    setIsDragging(true);
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDragging || !onChangeStyle) return;
+    const overlayEl = e.currentTarget.parentElement;
+    if (!overlayEl) return;
+
+    const rect = overlayEl.getBoundingClientRect();
+    let x = ((e.clientX - rect.left) / rect.width) * 100;
+    let y = ((e.clientY - rect.top) / rect.height) * 100;
+
+    // Constrain inside safe margins
+    x = Math.max(5, Math.min(95, x));
+    y = Math.max(5, Math.min(95, y));
+
+    onChangeStyle({
+      positionX: Math.round(x),
+      positionY: Math.round(y)
+    });
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    setIsDragging(false);
+    e.currentTarget.releasePointerCapture(e.pointerId);
+  };
+
+  // Safe percentage boundaries for captions
+  const posX = styleConfig.positionX !== undefined ? styleConfig.positionX : 50;
+  const posY = styleConfig.positionY !== undefined ? styleConfig.positionY : 80;
+
   return (
     <div className="flex flex-col gap-4">
       {/* Aspect Container */}
@@ -270,7 +425,7 @@ export default function VideoPlayer({
         onDrop={handleDrop}
       >
         {videoUrl ? (
-          <div className="relative w-full h-full group">
+          <div className="relative w-full h-full group" ref={containerRef}>
             {/* HTML5 Video */}
             <video
               ref={videoRef}
@@ -278,6 +433,14 @@ export default function VideoPlayer({
               className={isAudioFile ? "w-0 h-0 opacity-0 absolute pointer-events-none" : "w-full h-full object-contain bg-black"}
               onClick={togglePlay}
             />
+
+            {/* Font load status warning banner */}
+            {fontLoadError && (
+              <div className="absolute top-4 left-4 right-4 bg-red-950/90 border border-red-500/30 rounded-lg px-3 py-2 flex items-center gap-2 text-red-200 text-xs pointer-events-auto shadow-lg backdrop-blur-sm z-30 animate-fade-in">
+                <AlertCircle className="h-4 w-4 text-red-400 shrink-0" />
+                <span className="flex-1 font-sans">{fontLoadError}</span>
+              </div>
+            )}
 
             {/* Audio Waveform visualizer if it is an audio file */}
             {isAudioFile && (
@@ -304,14 +467,35 @@ export default function VideoPlayer({
               </div>
             )}
 
-            {/* Subtitle Overlay Container */}
-            <div className="absolute inset-x-0 bottom-12 top-0 pointer-events-none flex items-center justify-center p-6 select-none">
-              
-              {/* Normal caption background card if needed */}
+            {/* Subtitle Overlay Container (matches native video aspect bounds) */}
+            <div 
+              className="absolute pointer-events-none select-none z-20"
+              style={{
+                left: `${videoRef.current ? (videoRef.current.clientWidth - videoRenderedWidth) / 2 : 0}px`,
+                top: `${videoRef.current ? (videoRef.current.clientHeight - videoRenderedHeight) / 2 : 0}px`,
+                width: `${videoRenderedWidth || '100%'}px`,
+                height: `${videoRenderedHeight || '100%'}px`,
+              }}
+            >
+              {/* Draggable Subtitle Element */}
               <div 
-                className="transition-all duration-200 rounded-lg px-4 py-2 text-center max-w-[85%]"
+                ref={captionRef}
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                className="absolute transition-shadow rounded-lg px-4 py-2 text-center pointer-events-auto touch-none select-none"
                 style={{ 
-                  backgroundColor: activeSegment ? styleConfig.backgroundColor : 'transparent' 
+                  left: `${posX}%`,
+                  top: `${posY}%`,
+                  transform: 'translate(-50%, -50%)',
+                  cursor: isDragging ? 'grabbing' : 'grab',
+                  maxWidth: '90%',
+                  overflowWrap: 'break-word',
+                  wordBreak: 'break-word',
+                  whiteSpace: 'normal',
+                  backgroundColor: (styleConfig.backgroundCardEnabled !== false && activeSegment) ? styleConfig.backgroundColor : 'transparent',
+                  boxShadow: isDragging ? '0 20px 25px -5px rgb(0 0 0 / 0.5)' : 'none',
+                  border: isDragging ? '1px dashed rgba(139, 92, 246, 0.4)' : 'none',
                 }}
               >
                 {/* Dual-state render: active and previous caption words */}
@@ -321,7 +505,7 @@ export default function VideoPlayer({
                     {prevSegment && !activeSegment && (
                       <span 
                         className="absolute text-slate-600/40 transform scale-75 opacity-0 transition-all duration-150 line-clamp-1"
-                        style={{ fontFamily: styleConfig.fontFamily, fontSize: `${styleConfig.fontSize * 0.8}px` }}
+                        style={{ fontFamily: styleConfig.fontFamily, fontSize: `${styleConfig.fontSize * 0.8 * autoScale}px` }}
                       >
                         {formatText(prevSegment.text)}
                       </span>

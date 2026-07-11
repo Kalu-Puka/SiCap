@@ -410,16 +410,28 @@ export default function StylePanel({
             </div>
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className="text-[11px] text-slate-400">Background Card</label>
-            <div className="flex items-center gap-2 bg-slate-950 rounded-md px-2.5 py-1.5 border border-slate-700">
+            <div className="flex justify-between items-center">
+              <label className="text-[11px] text-slate-400">Background Card</label>
+              <div className="flex items-center gap-1">
+                <span className="text-[9px] text-slate-500 font-mono">Show</span>
+                <input
+                  type="checkbox"
+                  checked={styleConfig.backgroundCardEnabled !== false}
+                  onChange={(e) => onChangeStyle({ backgroundCardEnabled: e.target.checked })}
+                  className="h-3.5 w-3.5 rounded bg-slate-800 text-violet-600 accent-violet-500 border-slate-700 cursor-pointer"
+                />
+              </div>
+            </div>
+            <div className={`flex items-center gap-2 bg-slate-950 rounded-md px-2.5 py-1.5 border transition-opacity duration-200 ${(styleConfig.backgroundCardEnabled !== false) ? 'border-slate-700' : 'border-slate-800/40 opacity-40'}`}>
               <input
                 type="color"
+                disabled={styleConfig.backgroundCardEnabled === false}
                 value={styleConfig.backgroundColor.startsWith('rgba') ? '#000000' : styleConfig.backgroundColor}
                 onChange={(e) => onChangeStyle({ backgroundColor: e.target.value })}
-                className="w-6 h-6 rounded bg-transparent border-none cursor-pointer"
+                className="w-6 h-6 rounded bg-transparent border-none cursor-pointer disabled:cursor-not-allowed"
               />
               <span className="font-mono text-[10px] text-slate-300 uppercase">
-                {styleConfig.backgroundColor.startsWith('rgba') ? 'Transparent' : styleConfig.backgroundColor}
+                {(styleConfig.backgroundCardEnabled !== false) ? (styleConfig.backgroundColor.startsWith('rgba') ? 'Transparent' : styleConfig.backgroundColor) : 'Disabled'}
               </span>
             </div>
           </div>
@@ -432,16 +444,27 @@ export default function StylePanel({
               <Sparkles className="h-3 w-3 text-violet-400" />
               Active Word Highlight
             </label>
-            <span className="text-[9px] text-slate-500 font-mono">Karaoke Accent</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[9px] text-slate-500 font-mono">Enable</span>
+              <input
+                type="checkbox"
+                checked={styleConfig.highlightEnabled !== false}
+                onChange={(e) => onChangeStyle({ highlightEnabled: e.target.checked })}
+                className="h-3.5 w-3.5 rounded bg-slate-800 text-violet-600 accent-violet-500 border-slate-700 cursor-pointer"
+              />
+            </div>
           </div>
-          <div className="flex items-center gap-2 bg-slate-950 rounded-md px-3 py-2 border border-slate-700">
+          <div className={`flex items-center gap-2 bg-slate-950 rounded-md px-3 py-2 border transition-all duration-200 ${(styleConfig.highlightEnabled !== false) ? 'border-slate-700' : 'border-slate-800/40 opacity-40'}`}>
             <input
               type="color"
+              disabled={styleConfig.highlightEnabled === false}
               value={styleConfig.highlightColor || '#facc15'}
               onChange={(e) => onChangeStyle({ highlightColor: e.target.value })}
-              className="w-6 h-6 rounded bg-transparent border-none cursor-pointer"
+              className="w-6 h-6 rounded bg-transparent border-none cursor-pointer disabled:cursor-not-allowed"
             />
-            <span className="font-mono text-xs text-slate-300 uppercase">{styleConfig.highlightColor || '#facc15'}</span>
+            <span className="font-mono text-xs text-slate-300 uppercase">
+              {(styleConfig.highlightEnabled !== false) ? (styleConfig.highlightColor || '#facc15') : 'Disabled'}
+            </span>
           </div>
         </div>
 
