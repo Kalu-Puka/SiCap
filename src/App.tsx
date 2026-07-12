@@ -64,38 +64,16 @@ export default function App() {
       
       // 1. Verify and register FONT_PRESETS
       for (const font of FONT_PRESETS) {
-        let compatible = true;
-        if (font.fontType === 'legacy') {
-          const family = mapFontToFamily(font.family);
-          if (!family) {
-            compatible = false;
-          } else {
-            const testWord = "සිංහල";
-            try {
-              const converted = convertToLegacySafe(testWord, font.family);
-              const round = fontToUnicode(converted, family);
-              compatible = (round === testWord);
-            } catch {
-              compatible = false;
-            }
-          }
-        }
-
-        if (!compatible) {
-          console.warn(`[සිCaps Font Check] Skipping preset font "${font.name}" due to incompatibility.`);
-          continue;
-        }
-
         if (font.url) {
           try {
             if (typeof FontFace !== 'undefined') {
               const fontFace = new FontFace(font.family, `url(${font.url})`);
               await fontFace.load();
               document.fonts.add(fontFace);
+              console.log(`[සිCaps Font Check] Successfully loaded preset font: ${font.name}`);
             }
           } catch (e) {
-            console.warn(`[සිCaps Font Check] Skipping preset font "${font.name}" due to load failure:`, e);
-            continue;
+            console.warn(`[සිCaps Font Check] Skipping preset font registration for "${font.name}" due to load failure:`, e);
           }
         }
         results.push(font);
@@ -103,28 +81,7 @@ export default function App() {
 
       // 2. Add custom fonts (already loaded on mount / uploaded)
       for (const font of customFonts) {
-        let compatible = true;
-        if (font.fontType === 'legacy') {
-          const family = mapFontToFamily(font.family);
-          if (!family) {
-            compatible = false;
-          } else {
-            const testWord = "සිංහල";
-            try {
-              const converted = convertToLegacySafe(testWord, font.family);
-              const round = fontToUnicode(converted, family);
-              compatible = (round === testWord);
-            } catch {
-              compatible = false;
-            }
-          }
-        }
-
-        if (compatible) {
-          results.push(font);
-        } else {
-          console.warn(`[සිCaps Font Check] Disabling custom font "${font.name}" because it failed the round-trip check.`);
-        }
+        results.push(font);
       }
 
       if (active) {

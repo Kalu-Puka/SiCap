@@ -139,6 +139,7 @@ export default function VideoPlayer({
 
   // Font verification listener (FontFace API)
   useEffect(() => {
+    let active = true;
     setFontLoadError(null);
     const family = styleConfig.fontFamily;
     if (!family || family === 'Inter' || family === 'sans-serif') return;
@@ -147,9 +148,14 @@ export default function VideoPlayer({
     const checkFontLoad = () => {
       try {
         const isLoaded = document.fonts.check(fontDesc);
-        if (!isLoaded) {
+        if (isLoaded) {
+          if (active) setFontLoadError(null);
+        } else {
           document.fonts.ready.then(() => {
-            if (!document.fonts.check(fontDesc)) {
+            if (!active) return;
+            if (document.fonts.check(fontDesc)) {
+              setFontLoadError(null);
+            } else {
               setFontLoadError(`Font "${family}" failed to load on this browser. Raw Latin characters may show up instead of Sinhala shapes. Try uploading a custom .ttf file.`);
             }
           }).catch((err) => {
@@ -162,6 +168,9 @@ export default function VideoPlayer({
     };
 
     checkFontLoad();
+    return () => {
+      active = false;
+    };
   }, [styleConfig.fontFamily]);
 
   // Handle active word/segment selection & play state with high-resolution frame ticks
@@ -391,6 +400,26 @@ export default function VideoPlayer({
     } else {
       styles.color = styleConfig.textColor;
     }
+
+    // Traceable debug logging for preview
+    console.debug("[සිCaps Preview Render Log] Styled Segment:", {
+      fontFamily: styleConfig.fontFamily,
+      fontSize: styleConfig.fontSize,
+      calculatedFinalFontSize: finalFontSize,
+      textColor: styleConfig.textColor,
+      strokeColor: styleConfig.strokeColor,
+      strokeWidth: styleConfig.strokeWidth,
+      shadowColor: styleConfig.shadowColor,
+      shadowBlur: styleConfig.shadowBlur,
+      positionX: styleConfig.positionX,
+      positionY: styleConfig.positionY,
+      gradientEnabled: styleConfig.gradientEnabled,
+      gradientStart: styleConfig.gradientStart,
+      gradientEnd: styleConfig.gradientEnd,
+      highlightEnabled: styleConfig.highlightEnabled,
+      highlightColor: styleConfig.highlightColor,
+      activeSegmentText: activeSegment?.text
+    });
 
     return styles;
   };

@@ -326,6 +326,26 @@ function generateAssSubtitles(segments: any[], style: any, playResX = 1280, play
 
   const isLegacy = customIsLegacy !== undefined ? customIsLegacy : (legacyFontFamilies.includes(fontFamily) || !!mapFontToFamily(fontFamily));
   
+  // Traceable debug logging for export
+  console.log("[සිCaps Export Render Log] Styled Segment ASS:", {
+    fontFamily: fontFamily,
+    fontSize: fontSize,
+    strokeWidth: strokeWidth,
+    shadowBlur: shadowBlur,
+    textColor: style.textColor,
+    strokeColor: style.strokeColor,
+    backgroundColor: style.backgroundColor,
+    backgroundCardEnabled: style.backgroundCardEnabled,
+    highlightEnabled: style.highlightEnabled,
+    highlightColor: style.highlightColor,
+    positionX: style.positionX,
+    positionY: style.positionY,
+    gradientEnabled: style.gradientEnabled,
+    gradientStart: style.gradientStart,
+    gradientEnd: style.gradientEnd,
+    firstSegmentText: segments[0]?.text
+  });
+
   // Convert style panel parameters dynamically
   const textColorAss = hexToAssColor(style.textColor || '#ffffff', 255);
   const strokeColorAss = hexToAssColor(style.strokeColor || '#000000', 255);

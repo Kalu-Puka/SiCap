@@ -132,7 +132,7 @@ export default function StylePanel({
       </div>
 
       {/* Tab Contents Area */}
-      <div className="flex-1 overflow-y-auto p-5 space-y-5 custom-scrollbar">
+      <div className="flex-1 overflow-y-auto px-5 pt-5 pb-24 space-y-5 custom-scrollbar">
         
         {/* TEXT TAB */}
         {activeTab === 'text' && (
@@ -450,31 +450,7 @@ export default function StylePanel({
               </div>
             </div>
 
-            <div className="pt-2 space-y-2.5">
-              <button
-                onClick={onRunExport}
-                disabled={!canExport || isExporting}
-                className="w-full flex items-center justify-center gap-2 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:bg-slate-800 text-white font-sans text-sm font-semibold py-3 transition-all shadow-lg shadow-violet-950/30 cursor-pointer disabled:cursor-not-allowed border border-violet-500/30"
-                id="export-btn"
-              >
-                {isExporting ? (
-                  <>
-                    <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                    </svg>
-                    <span>
-                      {exportProgress !== null ? `Exporting ${exportProgress}%...` : 'Preparing Render...'}
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <Play className="h-4.5 w-4.5 fill-current" />
-                    <span>Render & Export MP4</span>
-                  </>
-                )}
-              </button>
-
+            <div className="pt-2">
               <button
                 onClick={onExportSRT}
                 disabled={!canExport || isExporting}
@@ -487,6 +463,33 @@ export default function StylePanel({
           </div>
         )}
 
+      </div>
+
+      {/* Persistent Bottom UI Bar for Export Action */}
+      <div className="shrink-0 p-4 bg-[#04060b] border-t border-slate-800">
+        <button
+          onClick={onRunExport}
+          disabled={!canExport || isExporting}
+          className="w-full flex items-center justify-center gap-2 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:bg-slate-800 text-white font-sans text-sm font-semibold py-3 transition-all shadow-lg shadow-violet-950/30 cursor-pointer disabled:cursor-not-allowed border border-violet-500/30"
+          id="export-btn"
+        >
+          {isExporting ? (
+            <>
+              <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+              <span>
+                {exportProgress !== null ? `Exporting ${exportProgress}%...` : 'Preparing Render...'}
+              </span>
+            </>
+          ) : (
+            <>
+              <Play className="h-4.5 w-4.5 fill-current" />
+              <span>Render & Export MP4</span>
+            </>
+          )}
+        </button>
       </div>
     </aside>
   );
