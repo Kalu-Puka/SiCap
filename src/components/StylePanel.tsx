@@ -1,6 +1,5 @@
 import { Type, Sparkles, Sliders, Palette, Play, Upload } from 'lucide-react';
 import { StyleConfig, FontPreset, ANIMATION_PRESETS } from '../types';
-import { unicodeToDlManel } from 'sinhala-unicode-coverter';
 import React from 'react';
 
 interface StylePanelProps {
@@ -138,22 +137,16 @@ export default function StylePanel({
                 onChange={(e) => onChangeStyle({ fontFamily: e.target.value })}
                 className="w-full bg-slate-950 text-slate-200 rounded-xl px-3.5 py-2.5 border border-slate-800 focus:outline-none focus:border-violet-500 text-xs cursor-pointer font-sans"
               >
-                {fonts.map((font) => {
-                  let sampleText = "සිංහල";
-                  if (font.fontType === 'legacy') {
-                    try { sampleText = unicodeToDlManel("සිංහල"); } catch { sampleText = "සිංහල"; }
-                  }
-                  return (
-                    <option 
-                      key={font.id} 
-                      value={font.family} 
-                      style={{ fontFamily: font.family }}
-                      className="py-1 text-slate-200"
-                    >
-                      {sampleText} — {font.name} {font.fontType === 'legacy' ? ' 🇱 (FM)' : ' 🇺 (Unicode)'}
-                    </option>
-                  );
-                })}
+                {fonts.map((font) => (
+                  <option 
+                    key={font.id} 
+                    value={font.family} 
+                    style={{ fontFamily: font.family }}
+                    className="py-1 text-slate-200"
+                  >
+                    {font.name} {font.fontType === 'legacy' ? '🇱' : '🇺'}
+                  </option>
+                ))}
               </select>
               
               {/* Dynamic Font Guide warnings */}

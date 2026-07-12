@@ -5,6 +5,8 @@ import VideoPlayer from './components/VideoPlayer';
 import StylePanel from './components/StylePanel';
 import Timeline from './components/Timeline';
 import { CaptionSegment, StyleConfig, ExportJob, FontPreset, FONT_PRESETS } from './types';
+import { fontToUnicode } from '@suhasdissa/singlish';
+import { mapFontToFamily, convertToLegacySafe } from './utils/legacyConverter';
 
 export default function App() {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
@@ -55,6 +57,74 @@ export default function App() {
   }, [customFonts]);
 
   const allFonts = [...FONT_PRESETS, ...customFonts];
+  const [verifiedFonts, setVerifiedFonts] = useState<FontPreset[]>(allFonts);
+
+  useEffect(() => {
+    let active = true;
+
+    async function verifyAll() {
+      const results: FontPreset[] = [];
+      for (const font of allFonts) {
+        // 1. Check if the font is round-trip compatible
+        let compatible = true;
+        if (font.fontType === 'legacy') {
+          const family = mapFontToFamily(font.family);
+          if (!family) {
+            compatible = false;
+          } else {
+            // Test standard round-trip with the helper
+            const testWord = "සිංහල";
+            try {
+              const converted = convertToLegacySafe(testWord, font.family);
+              const round = fontToUnicode(converted, family);
+              compatible = (round === testWord);
+            } catch {
+              compatible = false;
+            }
+          }
+        }
+
+        if (!compatible) {
+          console.warn(`[සිCaps Font Check] Disabling font "${font.name}" (${font.family}) because it failed the Sinhala Unicode round-trip check.`);
+          continue;
+        }
+
+        // 2. Check if the font file is loadable/present on the system
+        if (font.url) {
+          try {
+            // First do a HEAD fetch check to see if the server has the file
+            const headCheck = await fetch(font.url, { method: 'HEAD' });
+            if (!headCheck.ok) {
+              console.warn(`[සිCaps Font Check] Skipping font "${font.name}" because server returned status ${headCheck.status} for URL "${font.url}".`);
+              continue;
+            }
+
+            // Attempt to load via browser FontFace API to confirm it is actually a loadable font file
+            if (typeof FontFace !== 'undefined') {
+              const fontFace = new FontFace(font.family, `url(${font.url})`);
+              await fontFace.load();
+              document.fonts.add(fontFace);
+            }
+          } catch (e) {
+            console.warn(`[සිCaps Font Check] Skipping font "${font.name}" (${font.family}) because browser failed to load its FontFace:`, e);
+            continue;
+          }
+        }
+        
+        results.push(font);
+      }
+
+      if (active) {
+        setVerifiedFonts(results);
+      }
+    }
+
+    verifyAll();
+    return () => {
+      active = false;
+    };
+  }, [customFonts]);
+
   const [fallbackWarning, setFallbackWarning] = useState<string | null>(null);
   const [transcribeMode, setTranscribeMode] = useState<'sinhala-direct' | 'english-to-sinhala' | 'english-direct'>('sinhala-direct');
 
@@ -422,7 +492,7 @@ export default function App() {
               isTranscribing={isTranscribing}
               transcribeMode={transcribeMode}
               onTranscribeModeChange={setTranscribeMode}
-              fonts={allFonts}
+              fonts={verifiedFonts}
               onChangeStyle={(partial) => setStyleConfig(prev => {
                 // Return a clean new object to prevent cross-talk
                 return { ...prev, ...partial };
@@ -445,7 +515,7 @@ export default function App() {
               isExporting={isExporting}
               exportProgress={exportProgress}
               onExportSRT={handleExportSRT}
-              fonts={allFonts}
+              fonts={verifiedFonts}
               onAddCustomFont={(newFont) => setCustomFonts(prev => [...prev, newFont])}
             />
           </div>

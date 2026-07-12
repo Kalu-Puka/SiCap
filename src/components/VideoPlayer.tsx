@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Play, Pause, Upload, Volume2, Maximize, RefreshCw, Layers, AlertCircle } from 'lucide-react';
 import { CaptionSegment, StyleConfig, FONT_PRESETS, FontPreset } from '../types';
-import { unicodeToDlManel } from 'sinhala-unicode-coverter';
+import { convertToLegacySafe } from '../utils/legacyConverter';
 
 interface VideoPlayerProps {
   videoUrl: string | null;
@@ -21,15 +21,6 @@ interface VideoPlayerProps {
 
 // Fast cache for legacy font conversion
 const conversionCache = new Map<string, string>();
-
-function convertToLegacy(text: string): string {
-  const hasSinhalaUnicode = /[\u0d80-\u0dff]/.test(text);
-  if (!hasSinhalaUnicode) {
-    console.warn(`[සිCaps Safeguard] convertToLegacy() was called on text that lacks Sinhala Unicode characters: "${text}"`);
-    return text;
-  }
-  return unicodeToDlManel(text);
-}
 
 export default function VideoPlayer({
   videoUrl,
@@ -87,7 +78,7 @@ export default function VideoPlayer({
         return conversionCache.get(cacheKey)!;
       }
       try {
-        const converted = convertToLegacy(text);
+        const converted = convertToLegacySafe(text, styleConfig.fontFamily);
         conversionCache.set(cacheKey, converted);
         return converted;
       } catch (err) {
@@ -382,11 +373,15 @@ export default function VideoPlayer({
     const finalFontSize = Math.max(minFontSize, styleConfig.fontSize * autoScale);
     const sizeScale = finalFontSize / styleConfig.fontSize;
 
+    const segmentDuration = activeSegment ? (activeSegment.end - activeSegment.start) : 1000;
+    const animDuration = Math.min(250, Math.max(60, segmentDuration * 0.45));
+
     const styles: React.CSSProperties = {
       fontFamily: styleConfig.fontFamily,
       fontSize: `${finalFontSize}px`,
       WebkitTextStroke: `${styleConfig.strokeWidth * sizeScale}px ${styleConfig.strokeColor}`,
       textShadow: styleConfig.shadowBlur > 0 ? `0 0 ${styleConfig.shadowBlur * sizeScale}px ${styleConfig.shadowColor}` : 'none',
+      animationDuration: `${animDuration}ms`,
     };
 
     if (styleConfig.gradientEnabled) {

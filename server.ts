@@ -6,7 +6,7 @@ import { GoogleGenAI, Type } from '@google/genai';
 import multer from 'multer';
 import dotenv from 'dotenv';
 import ffmpeg from 'fluent-ffmpeg';
-import { unicodeToDlManel } from 'sinhala-unicode-coverter';
+import { convertToLegacySafe, mapFontToFamily } from './src/utils/legacyConverter';
 
 dotenv.config();
 
@@ -209,27 +209,51 @@ const legacyFontFamilies = [
 
 // Helper to get ASS override tags for specific kinetic animation presets
 function getAssAnimationTags(preset: string, durationMs: number): string {
+  // Cap the animation duration dynamically to at most 45% of the segment duration
+  const animDur = Math.min(250, Math.max(60, durationMs * 0.45));
+
   switch (preset) {
-    case 'apple-keynote':
-      return `{\\fscx60\\fscy60\\t(0,80,\\fscx100\\fscy100)}`;
-    case 'bounce':
-      return `{\\fscx80\\fscy80\\t(0,150,\\fscx115\\fscy115)\\t(150,250,\\fscx100\\fscy100)}`;
-    case 'fade-in':
-      return `{\\fad(150,0)}`;
-    case 'pop':
-      return `{\\fscx30\\fscy30\\t(0,120,\\fscx110\\fscy110)\\t(120,200,\\fscx100\\fscy100)}`;
-    case 'slide-up':
-      return `{\\fad(150,0)\\an2\\t(0,150,\\fscy105)}`;
-    case 'kinetic-zoom':
-      return `{\\fscx160\\fscy160\\t(0,180,\\fscx100\\fscy100)}`;
-    case 'shake':
-      return `{\\t(0,50,\\frz-1)\\t(50,100,\\frz1)\\t(100,150,\\frz0)}`;
+    case 'apple-keynote': {
+      const t1 = Math.round(animDur * 0.4);
+      return `{\\fscx60\\fscy60\\t(0,${t1},\\fscx100\\fscy100)}`;
+    }
+    case 'bounce': {
+      const t1 = Math.round(animDur * 0.5);
+      const t2 = Math.round(animDur);
+      return `{\\fscx80\\fscy80\\t(0,${t1},\\fscx115\\fscy115)\\t(${t1},${t2},\\fscx100\\fscy100)}`;
+    }
+    case 'fade-in': {
+      const t1 = Math.round(animDur);
+      return `{\\fad(${t1},0)}`;
+    }
+    case 'pop': {
+      const t1 = Math.round(animDur * 0.6);
+      const t2 = Math.round(animDur);
+      return `{\\fscx30\\fscy30\\t(0,${t1},\\fscx110\\fscy110)\\t(${t1},${t2},\\fscx100\\fscy100)}`;
+    }
+    case 'slide-up': {
+      const t1 = Math.round(animDur);
+      return `{\\fad(${t1},0)\\an2\\t(0,${t1},\\fscy105)}`;
+    }
+    case 'kinetic-zoom': {
+      const t1 = Math.round(animDur);
+      return `{\\fscx160\\fscy160\\t(0,${t1},\\fscx100\\fscy100)}`;
+    }
+    case 'shake': {
+      const t1 = Math.round(animDur * 0.3);
+      const t2 = Math.round(animDur * 0.6);
+      const t3 = Math.round(animDur);
+      return `{\\t(0,${t1},\\frz-1)\\t(${t1},${t2},\\frz1)\\t(${t2},${t3},\\frz0)}`;
+    }
     case 'neon-glow':
       return `{\\blur6\\bord4}`;
     case 'karaoke-fill':
       return `{\\k${Math.round(durationMs / 10)}}`;
-    case 'glitch':
-      return `{\\t(0,50,\\fscx110\\frz2)\\t(50,100,\\fscx100\\frz0)}`;
+    case 'glitch': {
+      const t1 = Math.round(animDur * 0.5);
+      const t2 = Math.round(animDur);
+      return `{\\t(0,${t1},\\fscx110\\frz2)\\t(${t1},${t2},\\fscx100\\frz0)}`;
+    }
     default:
       return '';
   }
@@ -295,22 +319,22 @@ function hexToAssColor(hexColor: string, defaultAlphaHtml = 255): string {
 }
 
 // Safeguarded convert function
-function convertToLegacy(text: string): string {
-  const hasSinhalaUnicode = /[\u0d80-\u0dff]/.test(text);
-  if (!hasSinhalaUnicode) {
-    console.warn(`[සිCaps Safeguard Server] convertToLegacy() was called on text that lacks Sinhala Unicode characters (possibly already converted or non-Sinhala): "${text}"`);
-    return text;
-  }
-  return unicodeToDlManel(text);
+function convertToLegacy(text: string, fontFamily: string): string {
+  return convertToLegacySafe(text, fontFamily);
 }
 
 // Helper to generate ASS subtitle content
 function generateAssSubtitles(segments: any[], style: any, playResX = 1280, playResY = 720): string {
-  const isLegacy = legacyFontFamilies.includes(style.fontFamily);
+  const fontFamily = style.fontFamily || 'Abhaya Libre';
+  const fontSize = style.fontSize !== undefined ? style.fontSize : 44;
+  const strokeWidth = style.strokeWidth !== undefined ? style.strokeWidth : 3;
+  const shadowBlur = style.shadowBlur !== undefined ? style.shadowBlur : 0;
+
+  const isLegacy = legacyFontFamilies.includes(fontFamily) || !!mapFontToFamily(fontFamily);
   
   // Convert style panel parameters dynamically
-  const textColorAss = hexToAssColor(style.textColor, 255);
-  const strokeColorAss = hexToAssColor(style.strokeColor, 255);
+  const textColorAss = hexToAssColor(style.textColor || '#ffffff', 255);
+  const strokeColorAss = hexToAssColor(style.strokeColor || '#000000', 255);
   
   // BackColour defines background card color if BorderStyle is 3 (opaque box)
   const backColorAss = style.backgroundColor ? hexToAssColor(style.backgroundColor, 128) : '&H80000000';
@@ -333,7 +357,7 @@ PlayResY: ${playResY}
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,${style.fontFamily},${style.fontSize},${textColorAss},&H000000FF,${strokeColorAss},${backColorAss},0,0,0,0,100,100,0,0,${borderStyle},${style.strokeWidth},${style.shadowBlur},5,10,10,10,1
+Style: Default,${fontFamily},${fontSize},${textColorAss},&H000000FF,${strokeColorAss},${backColorAss},0,0,0,0,100,100,0,0,${borderStyle},${strokeWidth},${shadowBlur},5,10,10,10,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -357,7 +381,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     let text = seg.text;
     if (isLegacy) {
       try {
-        text = convertToLegacy(text);
+        text = convertToLegacy(text, style.fontFamily);
       } catch (convErr) {
         console.warn('Unicode legacy translation failed for text:', text, convErr);
       }
