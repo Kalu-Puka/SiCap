@@ -33,15 +33,9 @@ const fontsToDownload = [
   { file: 'un-gemunu.TTF', url: 'https://raw.githubusercontent.com/Kalu-Puka/Fonts/main/un-gemunu.TTF' },
 ];
 
-// Optional legacy fonts that might be needed
-const optionalFonts = [
-  { file: 'FMYASO.ttf', url: 'https://raw.githubusercontent.com/Kalu-Puka/Fonts/main/FMYASO.ttf' },
-  { file: 'FMMALITHI.ttf', url: 'https://raw.githubusercontent.com/Kalu-Puka/Fonts/main/FMMALITHI.ttf' },
-];
-
 async function downloadFonts() {
   console.log('Checking and downloading Sinhala fonts...');
-  for (const font of [...fontsToDownload, ...optionalFonts]) {
+  for (const font of fontsToDownload) {
     const dest = path.join(fontDir, font.file);
     let shouldDownload = false;
     
@@ -66,11 +60,6 @@ async function downloadFonts() {
         console.log(`Successfully downloaded ${font.file}`);
       } catch (err: any) {
         console.warn(`Failed to download font ${font.file}:`, err.message);
-        // Fallback for FMYASO / FMMALITHI to prevent 404s if missing on repo
-        if (font.file === 'FMYASO.ttf' || font.file === 'FMMALITHI.ttf') {
-          console.log(`Writing empty placeholder fallback for ${font.file}`);
-          fs.writeFileSync(dest, '');
-        }
       }
     } else {
       console.log(`Font ${font.file} already exists and is non-empty, skipping download.`);
@@ -193,6 +182,11 @@ interface ExportJobInternal {
   error?: string;
   ffmpegCommand?: string;
   remotionCommand?: string;
+  customFont?: {
+    family: string;
+    fontType: 'unicode' | 'legacy';
+    base64: string;
+  };
 }
 
 const exportJobs: Map<string, ExportJobInternal> = new Map();
@@ -215,44 +209,44 @@ function getAssAnimationTags(preset: string, durationMs: number): string {
   switch (preset) {
     case 'apple-keynote': {
       const t1 = Math.round(animDur * 0.4);
-      return `{\\fscx60\\fscy60\\t(0,${t1},\\fscx100\\fscy100)}`;
+      return `\\fscx60\\fscy60\\t(0,${t1},\\fscx100\\fscy100)`;
     }
     case 'bounce': {
       const t1 = Math.round(animDur * 0.5);
       const t2 = Math.round(animDur);
-      return `{\\fscx80\\fscy80\\t(0,${t1},\\fscx115\\fscy115)\\t(${t1},${t2},\\fscx100\\fscy100)}`;
+      return `\\fscx80\\fscy80\\t(0,${t1},\\fscx115\\fscy115)\\t(${t1},${t2},\\fscx100\\fscy100)`;
     }
     case 'fade-in': {
       const t1 = Math.round(animDur);
-      return `{\\fad(${t1},0)}`;
+      return `\\fad(${t1},0)`;
     }
     case 'pop': {
       const t1 = Math.round(animDur * 0.6);
       const t2 = Math.round(animDur);
-      return `{\\fscx30\\fscy30\\t(0,${t1},\\fscx110\\fscy110)\\t(${t1},${t2},\\fscx100\\fscy100)}`;
+      return `\\fscx30\\fscy30\\t(0,${t1},\\fscx110\\fscy110)\\t(${t1},${t2},\\fscx100\\fscy100)`;
     }
     case 'slide-up': {
       const t1 = Math.round(animDur);
-      return `{\\fad(${t1},0)\\an2\\t(0,${t1},\\fscy105)}`;
+      return `\\fad(${t1},0)\\an2\\t(0,${t1},\\fscy105)`;
     }
     case 'kinetic-zoom': {
       const t1 = Math.round(animDur);
-      return `{\\fscx160\\fscy160\\t(0,${t1},\\fscx100\\fscy100)}`;
+      return `\\fscx160\\fscy160\\t(0,${t1},\\fscx100\\fscy100)`;
     }
     case 'shake': {
       const t1 = Math.round(animDur * 0.3);
       const t2 = Math.round(animDur * 0.6);
       const t3 = Math.round(animDur);
-      return `{\\t(0,${t1},\\frz-1)\\t(${t1},${t2},\\frz1)\\t(${t2},${t3},\\frz0)}`;
+      return `\\t(0,${t1},\\frz-1)\\t(${t1},${t2},\\frz1)\\t(${t2},${t3},\\frz0)`;
     }
     case 'neon-glow':
-      return `{\\blur6\\bord4}`;
+      return `\\blur6\\bord4`;
     case 'karaoke-fill':
-      return `{\\k${Math.round(durationMs / 10)}}`;
+      return `\\k${Math.round(durationMs / 10)}`;
     case 'glitch': {
       const t1 = Math.round(animDur * 0.5);
       const t2 = Math.round(animDur);
-      return `{\\t(0,${t1},\\fscx110\\frz2)\\t(${t1},${t2},\\fscx100\\frz0)}`;
+      return `\\t(0,${t1},\\fscx110\\frz2)\\t(${t1},${t2},\\fscx100\\frz0)`;
     }
     default:
       return '';
@@ -324,13 +318,13 @@ function convertToLegacy(text: string, fontFamily: string): string {
 }
 
 // Helper to generate ASS subtitle content
-function generateAssSubtitles(segments: any[], style: any, playResX = 1280, playResY = 720): string {
+function generateAssSubtitles(segments: any[], style: any, playResX = 1280, playResY = 720, customIsLegacy?: boolean): string {
   const fontFamily = style.fontFamily || 'Abhaya Libre';
   const fontSize = style.fontSize !== undefined ? style.fontSize : 44;
   const strokeWidth = style.strokeWidth !== undefined ? style.strokeWidth : 3;
   const shadowBlur = style.shadowBlur !== undefined ? style.shadowBlur : 0;
 
-  const isLegacy = legacyFontFamilies.includes(fontFamily) || !!mapFontToFamily(fontFamily);
+  const isLegacy = customIsLegacy !== undefined ? customIsLegacy : (legacyFontFamilies.includes(fontFamily) || !!mapFontToFamily(fontFamily));
   
   // Convert style panel parameters dynamically
   const textColorAss = hexToAssColor(style.textColor || '#ffffff', 255);
@@ -444,6 +438,20 @@ setInterval(() => {
       job.ffmpegCommand = ffmpegCmd;
       job.remotionCommand = remotionCmd;
 
+      let customFontFileCreated = false;
+      let customFontFilePath = '';
+      if (job.customFont) {
+        try {
+          const fontBuffer = Buffer.from(job.customFont.base64, 'base64');
+          customFontFilePath = path.join(fontDir, `temp_${job.customFont.family}.ttf`);
+          fs.writeFileSync(customFontFilePath, fontBuffer);
+          console.log(`[සිCaps] Temp custom font file created at ${customFontFilePath}`);
+          customFontFileCreated = true;
+        } catch (fontErr: any) {
+          console.warn('Failed to write temp custom font file:', fontErr);
+        }
+      }
+
       try {
         if (!fs.existsSync(originalPath)) {
           throw new Error(`Original video file not found at: ${originalPath}`);
@@ -457,6 +465,9 @@ setInterval(() => {
           job.status = 'completed';
           job.progress = 100;
           job.outputUrl = `/exports/${outputFilename}`;
+          if (customFontFileCreated && fs.existsSync(customFontFilePath)) {
+            try { fs.unlinkSync(customFontFilePath); } catch {}
+          }
         } else {
           // Probe video size first
           ffmpeg.ffprobe(originalPath, (probeErr, metadata) => {
@@ -474,8 +485,14 @@ setInterval(() => {
             }
 
             try {
-              // Save real subtitle file with probed dimensions
-              const assContent = generateAssSubtitles(job.segments, job.styleConfig, width, height);
+              // Save real subtitle file with probed dimensions, passing custom font legacy state if available
+              const assContent = generateAssSubtitles(
+                job.segments,
+                job.styleConfig,
+                width,
+                height,
+                job.customFont ? (job.customFont.fontType === 'legacy') : undefined
+              );
               fs.writeFileSync(assPath, assContent);
 
               // Execute actual FFmpeg command to burn subtitles
@@ -499,17 +516,26 @@ setInterval(() => {
                   job.status = 'completed';
                   job.progress = 100;
                   job.outputUrl = `/exports/${outputFilename}`;
+                  if (customFontFileCreated && fs.existsSync(customFontFilePath)) {
+                    try { fs.unlinkSync(customFontFilePath); } catch {}
+                  }
                 })
                 .on('error', (err) => {
                   console.error(`FFmpeg error during burn-in for job ${job.id}:`, err.message);
                   job.status = 'failed';
                   job.error = err.message || 'FFmpeg encoding failed';
+                  if (customFontFileCreated && fs.existsSync(customFontFilePath)) {
+                    try { fs.unlinkSync(customFontFilePath); } catch {}
+                  }
                 })
                 .save(finalOutputPath);
             } catch (innerErr: any) {
               console.error(`Export queue inner error for job ${job.id}:`, innerErr);
               job.status = 'failed';
               job.error = innerErr.message || 'Rendering failed';
+              if (customFontFileCreated && fs.existsSync(customFontFilePath)) {
+                try { fs.unlinkSync(customFontFilePath); } catch {}
+              }
             }
           });
         }
@@ -518,6 +544,9 @@ setInterval(() => {
         console.error(`Export queue processing error for job ${job.id}:`, e);
         job.status = 'failed';
         job.error = e.message || 'An error occurred during video rendering';
+        if (customFontFileCreated && fs.existsSync(customFontFilePath)) {
+          try { fs.unlinkSync(customFontFilePath); } catch {}
+        }
       }
     }
   }
@@ -637,7 +666,11 @@ app.post('/api/transcribe', upload.single('video'), async (req, res) => {
       const prompt = `You are an expert audio transcriber, translator, and professional caption generator like sinhalacaptions.com.
   ${modeInstruction}
 
-  You must partition the speech into sequential, timestamped segments. Each segment should contain either a single word or a short 1-4 word phrase.
+  CRITICAL TIMING & FORMATTING INSTRUCTIONS:
+  1. High-Precision Segmenting: You must partition the speech into highly granular, sequential, timestamped segments. To ensure perfect word-level timing and karaoke highlight synchronization, each segment should ideally contain exactly a single word (word-by-word captioning). Only combine into a 2-word segment if they are spoken extremely fast in continuous succession.
+  2. Numbers as Digits: Spoken numbers must always be captioned as digits (e.g., write "5" instead of "පහ" or "five").
+  3. English Words in English Script: English words embedded in Sinhala speech must stay in English script (e.g., write "camera" instead of "කැමරා" or "camera-එක" instead of "කැමරා එක").
+  
   Timestamps must represent milliseconds from the start of the video.
   For example:
   - "සිංහල" starts at 0ms and ends at 500ms
@@ -826,7 +859,7 @@ app.post('/api/upload-font', uploadFont.single('font'), (req, res) => {
 // API: Queue video caption burning job
 app.post('/api/export', (req, res) => {
   try {
-    const { videoUrl, styleConfig, segments } = req.body;
+    const { videoUrl, styleConfig, segments, customFont } = req.body;
     
     if (!videoUrl || !styleConfig || !segments) {
       return res.json({ success: false, error: 'Missing required parameters: videoUrl, styleConfig, or segments.' });
@@ -841,6 +874,7 @@ app.post('/api/export', (req, res) => {
       videoUrl,
       styleConfig,
       segments,
+      customFont,
       createdAt: new Date().toISOString(),
     };
 

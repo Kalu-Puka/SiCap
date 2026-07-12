@@ -7,6 +7,7 @@ import Timeline from './components/Timeline';
 import { CaptionSegment, StyleConfig, ExportJob, FontPreset, FONT_PRESETS } from './types';
 import { fontToUnicode } from '@suhasdissa/singlish';
 import { mapFontToFamily, convertToLegacySafe } from './utils/legacyConverter';
+import { getFonts, arrayBufferToBase64 } from './utils/fontDb';
 
 export default function App() {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
@@ -22,57 +23,53 @@ export default function App() {
   const [tutorialOpen, setTutorialOpen] = useState(false);
   const [apiConnected, setApiConnected] = useState(true);
 
-  const [customFonts, setCustomFonts] = useState<FontPreset[]>(() => {
-    try {
-      const saved = localStorage.getItem('custom-fonts');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [customFonts, setCustomFonts] = useState<FontPreset[]>([]);
+  const [verifiedFonts, setVerifiedFonts] = useState<FontPreset[]>(FONT_PRESETS);
 
-  // Sync custom fonts to localStorage
+  // Load custom fonts from IndexedDB on mount
   useEffect(() => {
-    localStorage.setItem('custom-fonts', JSON.stringify(customFonts));
-  }, [customFonts]);
-
-  // Inject CSS @font-face rules dynamically for custom fonts
-  useEffect(() => {
-    customFonts.forEach(font => {
-      const styleId = `style-custom-${font.family}`;
-      if (!document.getElementById(styleId)) {
-        const style = document.createElement('style');
-        style.id = styleId;
-        style.innerHTML = `
-          @font-face {
-            font-family: '${font.family}';
-            src: url('${font.url}') format('truetype');
-            font-weight: normal;
-            font-style: normal;
+    async function loadIndexedDBFonts() {
+      const stored = await getFonts();
+      const presets: FontPreset[] = [];
+      for (const font of stored) {
+        try {
+          if (typeof FontFace !== 'undefined') {
+            const fontFace = new FontFace(font.family, font.data);
+            await fontFace.load();
+            document.fonts.add(fontFace);
+            console.log(`[සිCaps] Loaded and registered custom font from IndexedDB: ${font.family}`);
           }
-        `;
-        document.head.appendChild(style);
+          presets.push({
+            id: font.id,
+            name: `${font.name} (Custom)`,
+            family: font.family,
+            url: '', // Empty means load from browser local Face
+            isLocal: true,
+            fontType: font.fontType
+          });
+        } catch (e) {
+          console.error(`[සිCaps] Failed to load custom font ${font.family} from IndexedDB:`, e);
+        }
       }
-    });
-  }, [customFonts]);
-
-  const allFonts = [...FONT_PRESETS, ...customFonts];
-  const [verifiedFonts, setVerifiedFonts] = useState<FontPreset[]>(allFonts);
+      setCustomFonts(presets);
+    }
+    loadIndexedDBFonts();
+  }, []);
 
   useEffect(() => {
     let active = true;
 
     async function verifyAll() {
       const results: FontPreset[] = [];
-      for (const font of allFonts) {
-        // 1. Check if the font is round-trip compatible
+      
+      // 1. Verify and register FONT_PRESETS
+      for (const font of FONT_PRESETS) {
         let compatible = true;
         if (font.fontType === 'legacy') {
           const family = mapFontToFamily(font.family);
           if (!family) {
             compatible = false;
           } else {
-            // Test standard round-trip with the helper
             const testWord = "සිංහල";
             try {
               const converted = convertToLegacySafe(testWord, font.family);
@@ -85,33 +82,49 @@ export default function App() {
         }
 
         if (!compatible) {
-          console.warn(`[සිCaps Font Check] Disabling font "${font.name}" (${font.family}) because it failed the Sinhala Unicode round-trip check.`);
+          console.warn(`[සිCaps Font Check] Skipping preset font "${font.name}" due to incompatibility.`);
           continue;
         }
 
-        // 2. Check if the font file is loadable/present on the system
         if (font.url) {
           try {
-            // First do a HEAD fetch check to see if the server has the file
-            const headCheck = await fetch(font.url, { method: 'HEAD' });
-            if (!headCheck.ok) {
-              console.warn(`[සිCaps Font Check] Skipping font "${font.name}" because server returned status ${headCheck.status} for URL "${font.url}".`);
-              continue;
-            }
-
-            // Attempt to load via browser FontFace API to confirm it is actually a loadable font file
             if (typeof FontFace !== 'undefined') {
               const fontFace = new FontFace(font.family, `url(${font.url})`);
               await fontFace.load();
               document.fonts.add(fontFace);
             }
           } catch (e) {
-            console.warn(`[සිCaps Font Check] Skipping font "${font.name}" (${font.family}) because browser failed to load its FontFace:`, e);
+            console.warn(`[සිCaps Font Check] Skipping preset font "${font.name}" due to load failure:`, e);
             continue;
           }
         }
-        
         results.push(font);
+      }
+
+      // 2. Add custom fonts (already loaded on mount / uploaded)
+      for (const font of customFonts) {
+        let compatible = true;
+        if (font.fontType === 'legacy') {
+          const family = mapFontToFamily(font.family);
+          if (!family) {
+            compatible = false;
+          } else {
+            const testWord = "සිංහල";
+            try {
+              const converted = convertToLegacySafe(testWord, font.family);
+              const round = fontToUnicode(converted, family);
+              compatible = (round === testWord);
+            } catch {
+              compatible = false;
+            }
+          }
+        }
+
+        if (compatible) {
+          results.push(font);
+        } else {
+          console.warn(`[සිCaps Font Check] Disabling custom font "${font.name}" because it failed the round-trip check.`);
+        }
       }
 
       if (active) {
@@ -133,7 +146,7 @@ export default function App() {
     textColor: '#ffffff',
     backgroundColor: 'rgba(0, 0, 0, 0.45)',
     strokeColor: '#000000',
-    strokeWidth: 3,
+    strokeWidth: 0,
     shadowColor: '#000000',
     shadowBlur: 0,
     fontSize: 44,
@@ -346,6 +359,24 @@ export default function App() {
     setIsExporting(true);
     setExportProgress(0);
 
+    let customFontPayload = null;
+    try {
+      const isCustom = customFonts.some(f => f.family === styleConfig.fontFamily);
+      if (isCustom) {
+        const dbFonts = await getFonts();
+        const matched = dbFonts.find(f => f.family === styleConfig.fontFamily);
+        if (matched) {
+          customFontPayload = {
+            family: matched.family,
+            fontType: matched.fontType,
+            base64: arrayBufferToBase64(matched.data)
+          };
+        }
+      }
+    } catch (fontErr) {
+      console.warn('Failed to package custom font for export:', fontErr);
+    }
+
     try {
       const res = await fetch('/api/export', {
         method: 'POST',
@@ -354,6 +385,7 @@ export default function App() {
           videoUrl: exportSrc,
           styleConfig,
           segments,
+          customFont: customFontPayload
         }),
       });
 

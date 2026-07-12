@@ -1,6 +1,7 @@
 import { Type, Sparkles, Sliders, Palette, Play, Upload } from 'lucide-react';
 import { StyleConfig, FontPreset, ANIMATION_PRESETS } from '../types';
 import React from 'react';
+import { saveFont } from '../utils/fontDb';
 
 interface StylePanelProps {
   styleConfig: StyleConfig;
@@ -33,42 +34,48 @@ export default function StylePanel({
     if (!file) return;
 
     const fontTypeSelect = document.getElementById('custom-font-type-select') as HTMLSelectElement;
-    const fontType = fontTypeSelect?.value || 'unicode';
+    const fontType = (fontTypeSelect?.value as 'unicode' | 'legacy') || 'unicode';
+    const customName = file.name.replace(/\.[^/.]+$/, "");
 
-    const formData = new FormData();
-    formData.append('font', file);
-    formData.append('name', file.name.replace(/\.[^/.]+$/, ""));
-    formData.append('fontType', fontType);
+    // Sanitize to a clean font-family name
+    const family = customName.replace(/[^a-zA-Z0-9-]/g, '') || `custom-font-${Date.now()}`;
 
     setIsUploadingFont(true);
     try {
-      const res = await fetch('/api/upload-font', {
-        method: 'POST',
-        body: formData
+      // 1. Read file as ArrayBuffer
+      const arrayBuffer = await new Promise<ArrayBuffer>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as ArrayBuffer);
+        reader.onerror = () => reject(new Error('Failed to read font file.'));
+        reader.readAsArrayBuffer(file);
       });
-      const data = await res.json();
-      if (data.success && data.fontPreset) {
-        // Inject dynamically into document.head
-        const style = document.createElement('style');
-        style.id = `style-custom-${data.fontPreset.family}`;
-        style.innerHTML = `
-          @font-face {
-            font-family: '${data.fontPreset.family}';
-            src: url('${data.fontPreset.url}') format('truetype');
-            font-weight: normal;
-            font-style: normal;
-          }
-        `;
-        document.head.appendChild(style);
 
-        onAddCustomFont(data.fontPreset);
-        onChangeStyle({ fontFamily: data.fontPreset.family });
-      } else {
-        alert(data.error || 'Failed to upload font.');
+      // 2. Save in IndexedDB
+      const savedFont = await saveFont(customName, family, fontType, arrayBuffer);
+
+      // 3. Register with FontFace API
+      if (typeof FontFace !== 'undefined') {
+        const fontFace = new FontFace(family, savedFont.data);
+        await fontFace.load();
+        document.fonts.add(fontFace);
+        console.log(`[සිCaps] Loaded and registered custom font client-side: ${family}`);
       }
+
+      // 4. Create the preset descriptor
+      const fontPreset: FontPreset = {
+        id: savedFont.id,
+        name: `${customName} (Custom)`,
+        family: family,
+        url: '', // Indicates stored in IndexedDB
+        isLocal: true,
+        fontType: fontType
+      };
+
+      onAddCustomFont(fontPreset);
+      onChangeStyle({ fontFamily: family });
     } catch (err: any) {
-      console.error('Error uploading font:', err);
-      alert('Network error uploading font.');
+      console.error('Error saving custom font:', err);
+      alert(err.message || 'Error saving custom font to local database.');
     } finally {
       setIsUploadingFont(false);
     }
@@ -207,7 +214,7 @@ export default function StylePanel({
               </div>
               <input
                 type="range"
-                min={18}
+                min={10}
                 max={96}
                 value={styleConfig.fontSize}
                 onChange={(e) => onChangeStyle({ fontSize: parseInt(e.target.value) })}
@@ -422,7 +429,7 @@ export default function StylePanel({
 
         {/* EXPORT TAB */}
         {activeTab === 'export' && (
-          <div className="space-y-4 animate-fade-in flex flex-col h-full">
+          <div className="space-y-4 animate-fade-in">
             <div className="rounded-xl bg-[#04060b] border border-slate-800/80 p-4 space-y-3 font-sans">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Render Details</span>
               <div className="grid grid-cols-2 gap-2 text-xs">
@@ -443,7 +450,7 @@ export default function StylePanel({
               </div>
             </div>
 
-            <div className="pt-2 space-y-2.5 mt-auto">
+            <div className="pt-2 space-y-2.5">
               <button
                 onClick={onRunExport}
                 disabled={!canExport || isExporting}
