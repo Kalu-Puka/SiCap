@@ -1,477 +1,517 @@
-import { useState, useEffect } from 'react';
-import { Sparkles, HelpCircle, X, Check, FileVideo, Cpu } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Sparkles, HelpCircle, X, Check, FileVideo, Cpu, Undo2, Redo2, Download, Play, Loader2 } from 'lucide-react';
 import Header from './components/Header';
-import VideoPlayer from './components/VideoPlayer';
-import StylePanel from './components/StylePanel';
-import Timeline from './components/Timeline';
-import { CaptionSegment, StyleConfig, ExportJob, FontPreset, FONT_PRESETS } from './types';
-import { fontToUnicode } from '@suhasdissa/singlish';
-import { mapFontToFamily, convertToLegacySafe } from './utils/legacyConverter';
-import { getFonts, arrayBufferToBase64 } from './utils/fontDb';
+import MediaBin from './components/MediaBin';
+import EditorPreview from './components/EditorPreview';
+import PropertiesPanel from './components/PropertiesPanel';
+import TimelineEditor from './components/TimelineEditor';
+import { ProjectState, TimelineClip, MediaAsset } from './core/types';
+import { VideoEngine } from './core/video/videoEngine';
+import { AudioEngine } from './core/audio/audioEngine';
+import { GraphicsEngine } from './core/graphics/graphicsEngine';
+import { TextEngine } from './core/text/textEngine';
+import { ExportEngine } from './core/export/exportEngine';
+import { ProjectStore } from './core/storage/projectStore';
 
 export default function App() {
-  const [videoUrl, setVideoUrl] = useState<string | null>(null);
-  const [serverVideoUrl, setServerVideoUrl] = useState<string | null>(null);
-  const [duration, setDuration] = useState(0);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [segments, setSegments] = useState<CaptionSegment[]>([]);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [projectState, setProjectState] = useState<ProjectState>(ProjectStore.createDefaultState());
+  const [history, setHistory] = useState<{ past: ProjectState[]; future: ProjectState[] }>({ past: [], future: [] });
+  const [selectedClip, setSelectedClip] = useState<TimelineClip | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState<number | null>(null);
-  const [jobs, setJobs] = useState<ExportJob[]>([]);
   const [tutorialOpen, setTutorialOpen] = useState(false);
   const [apiConnected, setApiConnected] = useState(true);
-
-  const [customFonts, setCustomFonts] = useState<FontPreset[]>([]);
-  const [verifiedFonts, setVerifiedFonts] = useState<FontPreset[]>(FONT_PRESETS);
-
-  // Load custom fonts from IndexedDB on mount
-  useEffect(() => {
-    async function loadIndexedDBFonts() {
-      const stored = await getFonts();
-      const presets: FontPreset[] = [];
-      for (const font of stored) {
-        try {
-          if (typeof FontFace !== 'undefined') {
-            const fontFace = new FontFace(font.family, font.data);
-            await fontFace.load();
-            document.fonts.add(fontFace);
-            console.log(`[සිCaps] Loaded and registered custom font from IndexedDB: ${font.family}`);
-          }
-          presets.push({
-            id: font.id,
-            name: `${font.name} (Custom)`,
-            family: font.family,
-            url: '', // Empty means load from browser local Face
-            isLocal: true,
-            fontType: font.fontType
-          });
-        } catch (e) {
-          console.error(`[සිCaps] Failed to load custom font ${font.family} from IndexedDB:`, e);
-        }
-      }
-      setCustomFonts(presets);
-    }
-    loadIndexedDBFonts();
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-
-    async function verifyAll() {
-      const results: FontPreset[] = [];
-      
-      // 1. Verify and register FONT_PRESETS
-      for (const font of FONT_PRESETS) {
-        if (font.url) {
-          try {
-            if (typeof FontFace !== 'undefined') {
-              const fontFace = new FontFace(font.family, `url(${font.url})`);
-              await fontFace.load();
-              document.fonts.add(fontFace);
-              console.log(`[සිCaps Font Check] Successfully loaded preset font: ${font.name}`);
-            }
-          } catch (e) {
-            console.warn(`[සිCaps Font Check] Skipping preset font registration for "${font.name}" due to load failure:`, e);
-          }
-        }
-        results.push(font);
-      }
-
-      // 2. Add custom fonts (already loaded on mount / uploaded)
-      for (const font of customFonts) {
-        results.push(font);
-      }
-
-      if (active) {
-        setVerifiedFonts(results);
-      }
-    }
-
-    verifyAll();
-    return () => {
-      active = false;
-    };
-  }, [customFonts]);
-
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [fallbackWarning, setFallbackWarning] = useState<string | null>(null);
-  const [transcribeMode, setTranscribeMode] = useState<'sinhala-direct' | 'english-to-sinhala' | 'english-direct'>('sinhala-direct');
 
-  // Default elegant style configurations - locked to clean white text, black outline, no gradient/card/highlight as requested
-  const [styleConfig, setStyleConfig] = useState<StyleConfig>({
-    textColor: '#ffffff',
-    backgroundColor: 'rgba(0, 0, 0, 0.45)',
-    strokeColor: '#000000',
-    strokeWidth: 0,
-    shadowColor: '#000000',
-    shadowBlur: 0,
-    fontSize: 44,
-    fontFamily: 'Sinhala Sangam MN',
-    gradientEnabled: false,
-    gradientStart: '#ffffff',
-    gradientEnd: '#ffffff',
-    animationPreset: 'fade-in',
-    highlightColor: '#facc15',
-    backgroundCardEnabled: false,
-    highlightEnabled: false,
-    positionX: 50,
-    positionY: 80
-  });
+  // Asset URL mapping
+  const [assetUrlMap, setAssetUrlMap] = useState<Map<string, string>>(new Map());
 
-  // Pull export jobs and check API status on mount
+  // Engine refs
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const videoEngine = useRef<VideoEngine | null>(null);
+  const textEngine = useRef<TextEngine | null>(null);
+  const exportEngine = useRef<ExportEngine | null>(null);
+  const audioEngine = useRef<AudioEngine | null>(null);
+
+  // Initialize engines on mount
   useEffect(() => {
-    fetchJobs();
-    checkApiStatus();
+    videoEngine.current = new VideoEngine();
+    textEngine.current = new TextEngine();
+    exportEngine.current = new ExportEngine();
+    audioEngine.current = new AudioEngine();
+
+    // Load project from local storage if available
+    const saved = ProjectStore.loadProject();
+    if (saved) {
+      setProjectState(saved);
+      // Sync asset URL mapping
+      const newMap = new Map<string, string>();
+      saved.assets.forEach(asset => {
+        newMap.set(asset.id, asset.url);
+      });
+      setAssetUrlMap(newMap);
+    }
+
+    return () => {
+      videoEngine.current?.destroy();
+      audioEngine.current?.destroy();
+    };
   }, []);
 
-  const checkApiStatus = async () => {
-    try {
-      const res = await fetch('/api/config-status');
-      const data = await res.json();
-      if (data.success) {
-        setApiConnected(data.valid);
-        if (!data.valid) {
-          setFallbackWarning('Please configure your GEMINI_API_KEY1 or GEMINI_API_KEY2 in Settings -> Secrets panel to start auto-transcribing.');
-        } else {
-          setFallbackWarning(null);
-        }
-      }
-    } catch (e) {
-      console.error('Error checking API status:', e);
-      setApiConnected(false);
-    }
-  };
-
-  const fetchJobs = async () => {
-    try {
-      const res = await fetch('/api/export/jobs');
-      const data = await res.json();
-      if (data.success) {
-        setJobs(data.jobs);
-      }
-    } catch (e) {
-      console.error('Error fetching export jobs:', e);
-    }
-  };
-
-  const handleVideoUpload = async (file: File) => {
-    setIsTranscribing(true);
-    setErrorMessage(null);
-    
-    // Generate an instant local object URL so video previews and plays immediately!
-    const localBlobUrl = URL.createObjectURL(file);
-    setVideoUrl(localBlobUrl);
-    setServerVideoUrl(null);
-    
-    setSegments([]);
-    setCurrentTime(0);
-    setFallbackWarning(null);
-
-    const formData = new FormData();
-    formData.append('video', file);
-    formData.append('transcribeMode', transcribeMode);
-
-    try {
-      const res = await fetch('/api/transcribe', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!res.ok) {
-        const text = await res.text();
-        let errorMsg = `Server error (${res.status}): ${res.statusText}`;
-        try {
-          const parsed = JSON.parse(text);
-          if (parsed && parsed.error) errorMsg = parsed.error;
-        } catch {
-          if (res.status === 413) {
-            errorMsg = "The video file is too large for the network proxy. Please try uploading a shorter, smaller video file (under 10-20MB) or configure your Gemini API Key in Settings.";
-          } else if (res.status === 504 || res.status === 502) {
-            errorMsg = "The connection timed out during transcription. Please try with a shorter video or verify your Gemini API key in settings.";
-          } else if (text.includes("<!doctype") || text.includes("<html")) {
-            errorMsg = `Received an HTML response instead of JSON. The server might have crashed, or the file size exceeded the proxy limits. Status: ${res.status}`;
-          } else if (text.trim()) {
-            errorMsg = text.slice(0, 200);
+  // Update loop for real-time play/pause and frames rendering
+  useEffect(() => {
+    if (!isPlaying) {
+      // Draw static frame when playhead moves or properties change
+      if (videoEngine.current) {
+        videoEngine.current.updatePlayback(projectState, false, assetUrlMap);
+        const canvas = canvasRef.current;
+        if (canvas) {
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            videoEngine.current.renderFrame(ctx, projectState, assetUrlMap);
+            // Render text clips
+            projectState.tracks.forEach(track => {
+              if (track.type === 'text') {
+                track.clips.forEach(clip => {
+                  if (projectState.currentTime >= clip.start && projectState.currentTime <= clip.start + clip.duration) {
+                    textEngine.current?.drawTextClip(ctx, clip, projectState.currentTime * 1000, false);
+                  }
+                });
+              }
+            });
           }
         }
-        throw new Error(errorMsg);
       }
+      return;
+    }
 
-      const contentType = res.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        const text = await res.text();
-        let detail = text.slice(0, 150).trim();
-        if (text.includes("<title>")) {
-          const titleMatch = text.match(/<title>([^<]+)<\/title>/i);
-          if (titleMatch) detail = `Page Title: "${titleMatch[1].trim()}"`;
-        } else if (text.includes("<h1>")) {
-          const h1Match = text.match(/<h1>([^<]+)<\/h1>/i);
-          if (h1Match) detail = `Header: "${h1Match[1].trim()}"`;
+    let lastTime = performance.now();
+    let animationFrameId: number;
+
+    const loop = (now: number) => {
+      const elapsed = (now - lastTime) / 1000;
+      lastTime = now;
+
+      setProjectState(prev => {
+        let nextTime = prev.currentTime + elapsed;
+        if (nextTime >= prev.duration) {
+          nextTime = 0;
+          setIsPlaying(false);
+          return { ...prev, currentTime: 0 };
         }
-        throw new Error(`Invalid response format from server (expected JSON, got ${contentType}). Detail: ${detail}`);
-      }
 
-      const data = await res.json();
-      if (data.success) {
-        setServerVideoUrl(data.videoUrl);
-        setSegments(data.segments);
-        setApiConnected(true);
-        setFallbackWarning(null);
-      } else {
-        setErrorMessage(data.error || 'Transcription failed. Please check your Gemini API key in settings/secrets.');
-      }
-    } catch (e: any) {
-      console.error('Upload Error:', e);
-      setErrorMessage(e.message || 'An error occurred during video upload or transcription. Make sure your Gemini API key is valid.');
-    } finally {
-      setIsTranscribing(false);
-    }
-  };
+        const nextState = { ...prev, currentTime: nextTime };
 
-  const handleUpdateSegment = (id: string, updatedFields: Partial<CaptionSegment>) => {
-    setSegments(prev =>
-      prev.map(seg => (seg.id === id ? { ...seg, ...updatedFields } : seg))
-    );
-  };
+        if (videoEngine.current) {
+          videoEngine.current.updatePlayback(nextState, true, assetUrlMap);
+          const canvas = canvasRef.current;
+          if (canvas) {
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              videoEngine.current.renderFrame(ctx, nextState, assetUrlMap);
+              // Render text clips
+              nextState.tracks.forEach(track => {
+                if (track.type === 'text') {
+                  track.clips.forEach(clip => {
+                    if (nextTime >= clip.start && nextTime <= clip.start + clip.duration) {
+                      textEngine.current?.drawTextClip(ctx, clip, nextTime * 1000, false);
+                    }
+                  });
+                }
+              });
+            }
+          }
+        }
 
-  const handlePolishSegment = async (id: string, text: string, mode: 'polish' | 'translate') => {
-    try {
-      const res = await fetch('/api/polish-text', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, mode }),
+        return nextState;
       });
-      const data = await res.json();
-      if (data.success) {
-        handleUpdateSegment(id, { text: data.polishedText });
-        return data.polishedText;
-      } else {
-        setErrorMessage(data.error || 'Failed to polish text.');
-      }
-    } catch (e: any) {
-      console.error('Error polishing segment:', e);
-      setErrorMessage(e.message || 'Error occurred while contacting AI Assistant.');
-    }
-  };
 
-  const handleAddSegment = () => {
-    const lastSeg = segments[segments.length - 1];
-    const nextStart = lastSeg ? lastSeg.end + 100 : 0;
-    const nextEnd = nextStart + 1500;
-
-    const newSeg: CaptionSegment = {
-      id: `seg_manual_${Date.now()}_${Math.round(Math.random() * 1000)}`,
-      text: 'නව වචනය (New Word)',
-      start: nextStart,
-      end: nextEnd,
+      animationFrameId = requestAnimationFrame(loop);
     };
 
-    setSegments(prev => [...prev, newSeg].sort((a, b) => a.start - b.start));
+    animationFrameId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [isPlaying, projectState, assetUrlMap]);
+
+  // Project State Updater with History Past/Future mapping
+  const updateProjectState = (
+    updater: ProjectState | ((prev: ProjectState) => ProjectState),
+    skipHistory = false
+  ) => {
+    setProjectState(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      if (!skipHistory) {
+        setHistory(h => ({
+          past: [...h.past.slice(-20), prev],
+          future: [],
+        }));
+      }
+      ProjectStore.saveProject(next);
+      return next;
+    });
   };
 
-  const handleDeleteSegment = (id: string) => {
-    setSegments(prev => prev.filter(seg => seg.id !== id));
+  const handleUndo = () => {
+    if (history.past.length === 0) return;
+    setHistory(h => {
+      const previous = h.past[h.past.length - 1];
+      const newPast = h.past.slice(0, -1);
+      setProjectState(present => {
+        ProjectStore.saveProject(previous);
+        return previous;
+      });
+      return {
+        past: newPast,
+        future: [projectState, ...h.future],
+      };
+    });
   };
 
-  const formatTimeSRT = (ms: number): string => {
-    const h = Math.floor(ms / 3600000);
-    const m = Math.floor(ms / 60000) % 60;
-    const s = Math.floor(ms / 1000) % 60;
-    const mmm = Math.floor(ms % 1000);
-
-    const pad = (num: number, size: number) => num.toString().padStart(size, '0');
-    return `${pad(h, 2)}:${pad(m, 2)}:${pad(s, 2)},${pad(mmm, 3)}`;
+  const handleRedo = () => {
+    if (history.future.length === 0) return;
+    setHistory(h => {
+      const next = h.future[0];
+      const newFuture = h.future.slice(1);
+      setProjectState(present => {
+        ProjectStore.saveProject(next);
+        return next;
+      });
+      return {
+        past: [...h.past, projectState],
+        future: newFuture,
+      };
+    });
   };
 
-  const handleExportSRT = () => {
-    if (segments.length === 0) return;
-    const srtContent = segments
-      .map((seg, index) => {
-        return `${index + 1}\n${formatTimeSRT(seg.start)} --> ${formatTimeSRT(seg.end)}\n${seg.text}\n`;
-      })
-      .join('\n');
-
-    const blob = new Blob([srtContent], { type: 'text/srt;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'sicaps_subtitles.srt';
-    a.click();
-    URL.revokeObjectURL(url);
+  // Asset Actions
+  const handleAddAsset = (asset: MediaAsset) => {
+    updateProjectState(prev => {
+      const assets = [...prev.assets, asset];
+      setAssetUrlMap(map => {
+        const newMap = new Map(map);
+        newMap.set(asset.id, asset.url);
+        return newMap;
+      });
+      return { ...prev, assets };
+    });
   };
 
-  const downloadExport = async (jobId: string) => {
-    try {
-      const res = await fetch(`/api/export/${jobId}/file`);
-      if (!res.ok) throw new Error('Export download failed');
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `sicaps_${jobId}.mp4`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (err: any) {
-      console.error('Download error:', err);
-      setErrorMessage(`Failed to download burned video: ${err.message}`);
-    }
+  const handleDeleteAsset = (id: string) => {
+    updateProjectState(prev => {
+      const assets = prev.assets.filter(a => a.id !== id);
+      const tracks = prev.tracks.map(track => ({
+        ...track,
+        clips: track.clips.filter(c => c.assetId !== id),
+      }));
+      return { ...prev, assets, tracks };
+    });
   };
 
-  const handleRunExport = async () => {
-    const exportSrc = serverVideoUrl || videoUrl;
-    if (!exportSrc || segments.length === 0) return;
+  const handleAddClipToTimeline = (assetId: string) => {
+    const asset = projectState.assets.find(a => a.id === assetId);
+    if (!asset) return;
+
+    updateProjectState(prev => {
+      const clipId = `clip_${Date.now()}_${Math.round(Math.random() * 1000)}`;
+      const newClip: TimelineClip = {
+        id: clipId,
+        assetId,
+        type: asset.type === 'audio' ? 'audio' : 'video',
+        start: prev.currentTime,
+        duration: Math.min(5, asset.duration),
+        trimStart: 0,
+        volume: 1.0,
+        transform: { x: 0, y: 0, scale: 1.0, opacity: 1.0 },
+      };
+
+      const tracks = prev.tracks.map(track => {
+        if (track.type === newClip.type) {
+          return {
+            ...track,
+            clips: [...track.clips, newClip],
+          };
+         }
+         return track;
+      });
+
+      // Sync caches
+      setTimeout(() => {
+        videoEngine.current?.syncCache(
+          tracks.flatMap(t => t.clips),
+          assetUrlMap
+        );
+      }, 0);
+
+      const clipEnd = newClip.start + newClip.duration;
+      const duration = Math.max(prev.duration, clipEnd + 2);
+
+      return { ...prev, tracks, duration };
+    });
+  };
+
+  // Add Empty Text Clip Helper
+  const handleAddTextClip = () => {
+    updateProjectState(prev => {
+      const clipId = `clip_text_${Date.now()}`;
+      const newClip: TimelineClip = {
+        id: clipId,
+        type: 'text',
+        start: prev.currentTime,
+        duration: 3.0,
+        trimStart: 0,
+        volume: 1.0,
+        transform: { x: 0, y: 0, scale: 1.0, opacity: 1.0 },
+        textProperties: {
+          text: 'පෙළ සිරස්තලය (Text Subtitle)',
+          fontSize: 48,
+          fontFamily: 'Inter',
+          textColor: '#ffffff',
+          backgroundColor: 'rgba(0,0,0,0.6)',
+          strokeColor: '#000000',
+          strokeWidth: 2,
+          shadowColor: '#000000',
+          shadowBlur: 4,
+          gradientEnabled: false,
+          gradientStart: '#ffffff',
+          gradientEnd: '#ffffff',
+          animationPreset: 'fade-in',
+          highlightEnabled: false,
+          highlightColor: '#eab308',
+          backgroundCardEnabled: false,
+        },
+      };
+
+      const tracks = prev.tracks.map(track => {
+        if (track.type === 'text') {
+          return {
+            ...track,
+            clips: [...track.clips, newClip],
+          };
+        }
+        return track;
+      });
+
+      return { ...prev, tracks };
+    });
+  };
+
+  // Clip actions
+  const handleUpdateClip = (clipId: string, updatedFields: Partial<TimelineClip>) => {
+    updateProjectState(prev => {
+      const tracks = prev.tracks.map(track => ({
+        ...track,
+        clips: track.clips.map(clip => {
+          if (clip.id === clipId) {
+            const updated = { ...clip, ...updatedFields };
+            if (selectedClip?.id === clipId) {
+              setSelectedClip(updated);
+            }
+            return updated;
+          }
+          return clip;
+        }),
+      }));
+      return { ...prev, tracks };
+    });
+  };
+
+  const handleDeleteClip = (clipId: string) => {
+    updateProjectState(prev => {
+      const tracks = prev.tracks.map(track => ({
+        ...track,
+        clips: track.clips.filter(c => c.id !== clipId),
+      }));
+      if (selectedClip?.id === clipId) {
+        setSelectedClip(null);
+      }
+      return { ...prev, tracks };
+    });
+  };
+
+  const handleSplitClip = (clipId: string) => {
+    updateProjectState(prev => {
+      const playhead = prev.currentTime;
+      let clipToSplit: TimelineClip | null = null;
+      let parentTrackId = '';
+
+      for (const track of prev.tracks) {
+        const found = track.clips.find(c => c.id === clipId);
+        if (found) {
+          clipToSplit = found;
+          parentTrackId = track.id;
+          break;
+        }
+      }
+
+      if (!clipToSplit) return prev;
+
+      const isInside = playhead > clipToSplit.start && playhead < clipToSplit.start + clipToSplit.duration;
+      if (!isInside) {
+        setErrorMessage("Cannot split: Playhead is outside the selected clip's bounds.");
+        return prev;
+      }
+
+      const relativeSplitTime = playhead - clipToSplit.start;
+
+      const leftClip: TimelineClip = {
+        ...clipToSplit,
+        id: `clip_${Date.now()}_left_${Math.round(Math.random() * 1000)}`,
+        duration: relativeSplitTime,
+      };
+
+      const rightClip: TimelineClip = {
+        ...clipToSplit,
+        id: `clip_${Date.now()}_right_${Math.round(Math.random() * 1000)}`,
+        start: playhead,
+        duration: clipToSplit.duration - relativeSplitTime,
+        trimStart: clipToSplit.trimStart + relativeSplitTime,
+      };
+
+      const tracks = prev.tracks.map(track => {
+        if (track.id === parentTrackId) {
+          const filtered = track.clips.filter(c => c.id !== clipId);
+          return {
+            ...track,
+            clips: [...filtered, leftClip, rightClip],
+          };
+        }
+        return track;
+      });
+
+      setSelectedClip(null);
+      return { ...prev, tracks };
+    });
+  };
+
+  // Export handling
+  const handleRunClientExport = async () => {
+    if (!videoEngine.current || !textEngine.current || !exportEngine.current) return;
     setIsExporting(true);
     setExportProgress(0);
 
-    let customFontPayload = null;
     try {
-      const isCustom = customFonts.some(f => f.family === styleConfig.fontFamily);
-      if (isCustom) {
-        const dbFonts = await getFonts();
-        const matched = dbFonts.find(f => f.family === styleConfig.fontFamily);
-        if (matched) {
-          customFontPayload = {
-            family: matched.family,
-            fontType: matched.fontType,
-            base64: arrayBufferToBase64(matched.data)
-          };
-        }
-      }
-    } catch (fontErr) {
-      console.warn('Failed to package custom font for export:', fontErr);
-    }
+      const blob = await exportEngine.current.exportTimeline(
+        projectState,
+        videoEngine.current,
+        textEngine.current,
+        assetUrlMap,
+        (progress) => setExportProgress(progress)
+      );
 
-    try {
-      const res = await fetch('/api/export', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          videoUrl: exportSrc,
-          styleConfig,
-          segments,
-          customFont: customFontPayload
-        }),
-      });
-
-      if (!res.ok) {
-        const text = await res.text();
-        let errorMsg = `Server error (${res.status}): ${res.statusText}`;
-        try {
-          const parsed = JSON.parse(text);
-          if (parsed && parsed.error) errorMsg = parsed.error;
-        } catch {
-          if (text.includes("<!doctype") || text.includes("<html")) {
-            errorMsg = `Received an HTML page instead of JSON. Status: ${res.status}`;
-          } else if (text.trim()) {
-            errorMsg = text.slice(0, 200);
-          }
-        }
-        throw new Error(errorMsg);
-      }
-
-      const contentType = res.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        const text = await res.text();
-        let detail = text.slice(0, 150).trim();
-        if (text.includes("<title>")) {
-          const titleMatch = text.match(/<title>([^<]+)<\/title>/i);
-          if (titleMatch) detail = `Page Title: "${titleMatch[1].trim()}"`;
-        } else if (text.includes("<h1>")) {
-          const h1Match = text.match(/<h1>([^<]+)<\/h1>/i);
-          if (h1Match) detail = `Header: "${h1Match[1].trim()}"`;
-        }
-        throw new Error(`Invalid response format from server (expected JSON, got ${contentType}). Detail: ${detail}`);
-      }
-
-      const data = await res.json();
-      if (data.success) {
-        const jobId = data.jobId;
-        // Start polling the job status inline
-        const pollInterval = setInterval(async () => {
-          try {
-            const statusRes = await fetch(`/api/export/status/${jobId}`);
-            if (!statusRes.ok) return;
-            const statusData = await statusRes.json();
-            if (statusData.success && statusData.job) {
-              const job = statusData.job;
-              setExportProgress(job.progress || 0);
-
-              if (job.status === 'completed') {
-                clearInterval(pollInterval);
-                await downloadExport(jobId);
-                setIsExporting(false);
-                setExportProgress(null);
-                fetchJobs(); // Update background list
-              } else if (job.status === 'failed') {
-                clearInterval(pollInterval);
-                setIsExporting(false);
-                setExportProgress(null);
-                setErrorMessage(job.error || 'Video export rendering failed on server.');
-              }
-            }
-          } catch (pollErr) {
-            console.error('Error polling export job:', pollErr);
-          }
-        }, 1200);
-      } else {
-        setErrorMessage(data.error || 'Failed to queue rendering job.');
-        setIsExporting(false);
-        setExportProgress(null);
-      }
-    } catch (e: any) {
-      console.error('Export Error:', e);
-      setErrorMessage(e.message || 'Failed to connect to export server.');
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${projectState.projectName.toLowerCase().replace(/\s+/g, '_')}_export.webm`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      console.error('Export failed:', err);
+      setErrorMessage(`Export failed: ${err.message || 'Check WebCodecs support in your browser'}`);
+    } finally {
       setIsExporting(false);
       setExportProgress(null);
     }
   };
 
   const handleSeek = (time: number) => {
-    setCurrentTime(time);
-    const video = document.querySelector('video');
-    if (video) {
-      video.currentTime = time;
-    }
+    updateProjectState(prev => ({ ...prev, currentTime: time }), true);
+  };
+
+  const handleToggleMute = () => {
+    const next = !isMuted;
+    setIsMuted(next);
+    audioEngine.current?.setMute(next);
+  };
+
+  const handleChangeAspectRatio = (ratio: '16:9' | '9:16' | '1:1') => {
+    updateProjectState(prev => ({ ...prev, aspectRatio: ratio }));
   };
 
   return (
-    <div className="min-h-screen bg-[#020617] text-slate-200 flex flex-col selection:bg-violet-500/30 selection:text-violet-200">
-      {/* App Header */}
-      <Header
-        onShowTutorial={() => setTutorialOpen(true)}
-        apiConnected={apiConnected}
-      />
-
-      {/* API Fallback warning banner */}
-      {fallbackWarning && (
-        <div className="mx-auto max-w-7xl w-full px-4 lg:px-6 mt-4">
-          <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-xs text-amber-200 shadow-lg">
-            <div className="flex items-center gap-2">
-              <Cpu className="h-4 w-4 text-amber-400 shrink-0" />
-              <span className="font-sans leading-relaxed">{fallbackWarning}</span>
-            </div>
-            <button
-              onClick={() => setFallbackWarning(null)}
-              className="text-amber-400 hover:text-amber-200 p-1 rounded-lg hover:bg-amber-500/10 transition-colors cursor-pointer shrink-0"
-            >
-              <X className="h-4 w-4" />
-            </button>
+    <div className="min-h-screen bg-[#040815] text-slate-200 flex flex-col selection:bg-violet-500/30 selection:text-violet-200 overflow-hidden">
+      {/* App Header (layout toolbar) */}
+      <header className="border-b border-slate-800 bg-[#060a18]/80 backdrop-blur-md px-6 py-4 flex items-center justify-between z-10 shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="relative flex h-8 w-8 items-center justify-center rounded-lg bg-violet-600 shadow-[0_0_15px_rgba(124,58,237,0.5)] font-bold text-white text-sm">
+            සි
+          </div>
+          <div>
+            <h1 className="font-sans text-sm font-bold tracking-tight text-white flex items-center gap-2">
+              සි<span>Caps Studio Editor</span>
+            </h1>
+            <input
+              type="text"
+              value={projectState.projectName}
+              onChange={(e) => updateProjectState(prev => ({ ...prev, projectName: e.target.value }), true)}
+              className="bg-transparent border-none text-[11px] text-slate-400 font-medium focus:ring-1 focus:ring-violet-500/40 px-1 py-0.5 rounded -ml-1 mt-0.5 w-48 font-sans"
+            />
           </div>
         </div>
-      )}
 
-      {/* Visible Inline Error Banner (Iframe Safe - replaces window.alert) */}
+        {/* Center: Undo/Redo */}
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={handleUndo}
+            disabled={history.past.length === 0}
+            className="p-2 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 hover:text-white disabled:opacity-30 transition-all cursor-pointer"
+            title="Undo"
+          >
+            <Undo2 className="h-4 w-4" />
+          </button>
+          <button
+            onClick={handleRedo}
+            disabled={history.future.length === 0}
+            className="p-2 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 hover:text-white disabled:opacity-30 transition-all cursor-pointer"
+            title="Redo"
+          >
+            <Redo2 className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Right side: Export Button */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setTutorialOpen(true)}
+            className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-white transition-colors cursor-pointer"
+          >
+            <HelpCircle className="h-4 w-4" />
+            <span>How it Works</span>
+          </button>
+
+          <button
+            onClick={handleRunClientExport}
+            disabled={isExporting || projectState.tracks.flatMap(t => t.clips).length === 0}
+            className="flex items-center gap-1.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-semibold px-4 py-2 cursor-pointer shadow-lg transition-transform hover:scale-105 active:scale-95 disabled:opacity-45"
+          >
+            {isExporting ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <span>Exporting ({exportProgress}%)</span>
+              </>
+            ) : (
+              <>
+                <Download className="h-3.5 w-3.5" />
+                <span>Export video</span>
+              </>
+            )}
+          </button>
+        </div>
+      </header>
+
+      {/* Visible Error Banner */}
       {errorMessage && (
-        <div className="mx-auto max-w-7xl w-full px-4 lg:px-6 mt-4">
-          <div className="flex items-start justify-between gap-3 rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-3.5 text-xs text-rose-200 shadow-lg">
-            <div className="flex items-start gap-2.5">
-              <span className="text-rose-400 font-bold shrink-0 text-sm leading-none mt-0.5">⚠️</span>
+        <div className="mx-6 mt-4">
+          <div className="flex items-start justify-between gap-3 rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-xs text-rose-200 shadow-lg">
+            <div className="flex items-center gap-2">
+              <span className="text-rose-400 font-bold shrink-0 text-sm">⚠️</span>
               <span className="font-sans leading-relaxed">{errorMessage}</span>
             </div>
             <button
               onClick={() => setErrorMessage(null)}
-              className="text-rose-400 hover:text-rose-200 p-1 rounded-lg hover:bg-rose-500/10 transition-colors cursor-pointer shrink-0"
+              className="text-rose-400 hover:text-rose-200 p-1 rounded-lg hover:bg-rose-500/10 transition-colors cursor-pointer"
             >
               <X className="h-4 w-4" />
             </button>
@@ -479,73 +519,62 @@ export default function App() {
         </div>
       )}
 
-      {/* Main Studio Editor workspace */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 lg:p-6 flex flex-col gap-6">
+      {/* Main Studio Editor grid workspace */}
+      <div className="flex-1 flex overflow-hidden min-h-0">
         
-        {/* Top row: Sticky Video Preview & Scrollable Style Settings sidebar */}
-        <div className="flex flex-col xl:flex-row gap-6 items-start">
-          
-          {/* Sticky Video Preview Stage */}
-          <div className="w-full xl:w-[480px] 2xl:w-[560px] xl:sticky xl:top-6 shrink-0 z-30">
-            <VideoPlayer
-              videoUrl={videoUrl}
-              segments={segments}
-              styleConfig={styleConfig}
-              currentTime={currentTime}
-              setCurrentTime={setCurrentTime}
-              onVideoUpload={handleVideoUpload}
-              isTranscribing={isTranscribing}
-              transcribeMode={transcribeMode}
-              onTranscribeModeChange={setTranscribeMode}
-              fonts={verifiedFonts}
-              onChangeStyle={(partial) => setStyleConfig(prev => {
-                // Return a clean new object to prevent cross-talk
-                return { ...prev, ...partial };
-              })}
-              duration={duration}
-              setDuration={setDuration}
-            />
-          </div>
+        {/* Left Side: Media Bin Library */}
+        <MediaBin
+          assets={projectState.assets}
+          onAddAsset={handleAddAsset}
+          onDeleteAsset={handleDeleteAsset}
+          onAddClipToTimeline={handleAddClipToTimeline}
+        />
 
-          {/* Style Controls Sidebar */}
-          <div className="flex-1 w-full">
-            <StylePanel
-              styleConfig={styleConfig}
-              onChangeStyle={(partial) => setStyleConfig(prev => {
-                // Return a clean new object to prevent cross-talk
-                return { ...prev, ...partial };
-              })}
-              onRunExport={handleRunExport}
-              canExport={!!videoUrl && segments.length > 0}
-              isExporting={isExporting}
-              exportProgress={exportProgress}
-              onExportSRT={handleExportSRT}
-              fonts={verifiedFonts}
-              onAddCustomFont={(newFont) => setCustomFonts(prev => [...prev, newFont])}
-            />
-          </div>
-
-        </div>
-
-        {/* Bottom Section: Editing Timeline Track & Segment List */}
-        <div className="w-full pt-4 border-t border-slate-900">
-          <Timeline
-            segments={segments}
-            currentTime={currentTime}
+        {/* Center: Canvas Live Preview Area */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <EditorPreview
+            state={projectState}
+            isPlaying={isPlaying}
+            onPlayToggle={() => setIsPlaying(!isPlaying)}
+            onStop={() => {
+              setIsPlaying(false);
+              handleSeek(0);
+            }}
             onSeek={handleSeek}
-            onUpdateSegment={handleUpdateSegment}
-            onAddSegment={handleAddSegment}
-            onDeleteSegment={handleDeleteSegment}
-            onPolishSegment={handlePolishSegment}
-            isTranscribing={isTranscribing}
-            duration={duration}
+            onChangeAspectRatio={handleChangeAspectRatio}
+            canvasRef={canvasRef}
+            isMuted={isMuted}
+            onToggleMute={handleToggleMute}
           />
         </div>
-      </main>
 
-      {/* Tutorial Guidelines Help Overlay Modal */}
+        {/* Right Side: Context Properties Panel */}
+        <PropertiesPanel
+          selectedClip={selectedClip}
+          onUpdateClipProperties={handleUpdateClip}
+          onSplitClip={handleSplitClip}
+          onDeleteClip={handleDeleteClip}
+        />
+
+      </div>
+
+      {/* Bottom Area: Multi-Track Professional Editor Timeline */}
+      <div className="shrink-0">
+        <TimelineEditor
+          state={projectState}
+          selectedClip={selectedClip}
+          onSelectClip={setSelectedClip}
+          onUpdateClip={handleUpdateClip}
+          onDeleteClip={handleDeleteClip}
+          onSplitClip={handleSplitClip}
+          onSeek={handleSeek}
+          onAddTextClip={handleAddTextClip}
+        />
+      </div>
+
+      {/* Tutorial modal info */}
       {tutorialOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 relative shadow-2xl">
             <button
               onClick={() => setTutorialOpen(false)}
@@ -557,7 +586,7 @@ export default function App() {
             <div className="flex items-center gap-2 mb-4">
               <Sparkles className="h-5 w-5 text-violet-400" />
               <h3 className="font-sans text-base font-bold text-white">
-                How Sinhala Captions Works
+                How Studio Editor Works
               </h3>
             </div>
 
@@ -567,9 +596,9 @@ export default function App() {
                   1
                 </span>
                 <div>
-                  <h4 className="font-semibold text-slate-100">Upload video & Extract Speech</h4>
+                  <h4 className="font-semibold text-slate-100">Upload video & audio files</h4>
                   <p className="text-slate-400 mt-1">
-                    Drag and drop your MP4/WebM file. The backend uploads it to the <strong>Gemini Files API</strong>.
+                    Use the Media Library tab on the left. Click on the upload icon to load media files into your library locally.
                   </p>
                 </div>
               </div>
@@ -579,9 +608,9 @@ export default function App() {
                   2
                 </span>
                 <div>
-                  <h4 className="font-semibold text-zinc-100">Structured AI Transcription</h4>
+                  <h4 className="font-semibold text-slate-100">Add Clips & Trim On Timeline</h4>
                   <p className="text-slate-400 mt-1">
-                    Gemini model <strong>gemini-3.5-flash</strong> transcribes audio using a structured JSON schema, matching speech with millisecond timings.
+                    Click "Add to Timeline" to place clips on Video/Audio tracks. Drag handles on left/right edges to adjust trim or drag clips to reposition them on the tracks.
                   </p>
                 </div>
               </div>
@@ -591,9 +620,9 @@ export default function App() {
                   3
                 </span>
                 <div>
-                  <h4 className="font-semibold text-zinc-100">Style & Correct Unicode</h4>
+                  <h4 className="font-semibold text-slate-100">Customize scale & volume properties</h4>
                   <p className="text-slate-400 mt-1">
-                    Adjust font family (including custom local Sinhala TrueType FM fonts), text colors, gradients, stroke outlines, and active animations. Double-click any text bubble in the timeline to make quick manual spelling corrections.
+                    Select a clip to open its properties panel. Adjust volume, scale multipliers, position offsets, or slice clips at any location with the Split tool.
                   </p>
                 </div>
               </div>
@@ -603,9 +632,9 @@ export default function App() {
                   4
                 </span>
                 <div>
-                  <h4 className="font-semibold text-zinc-100">Background Video Rendering Queue</h4>
+                  <h4 className="font-semibold text-slate-100">Client-Side WebM Export</h4>
                   <p className="text-slate-400 mt-1">
-                    Exporting submits a job to the background Express queue, generating subtitle styling configurations (ASS files) and command files for non-blocking rendering.
+                    Click "Export video" to compile the timeline frame-by-frame instantly using WebCodecs and download it without any watermarks.
                   </p>
                 </div>
               </div>
