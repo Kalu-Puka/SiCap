@@ -25,7 +25,8 @@
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "sinhala-unicode-coverter": "^1.0.2",
-    "vite": "^6.2.3"
+    "vite": "^6.2.3",
+    "webm-muxer": "^5.1.4"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",

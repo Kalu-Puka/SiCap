@@ -82,7 +82,7 @@ export default function StylePanel({
   };
 
   return (
-    <aside className="w-full xl:w-[400px] bg-[#090d16] border border-slate-800 rounded-2xl flex flex-col text-slate-200 shadow-2xl backdrop-blur-sm overflow-hidden min-h-[500px]">
+    <aside className="w-full xl:w-[400px] xl:h-[620px] bg-[#090d16] border border-slate-800 rounded-2xl flex flex-col text-slate-200 shadow-2xl backdrop-blur-sm overflow-hidden min-h-[500px]">
       {/* Sidebar Tabs Header */}
       <div className="flex border-b border-slate-800 bg-[#04060b] p-1.5 shrink-0 gap-1 select-none">
         <button
@@ -214,7 +214,7 @@ export default function StylePanel({
               </div>
               <input
                 type="range"
-                min={10}
+                min={1}
                 max={96}
                 value={styleConfig.fontSize}
                 onChange={(e) => onChangeStyle({ fontSize: parseInt(e.target.value) })}

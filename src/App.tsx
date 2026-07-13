@@ -107,12 +107,12 @@ export default function App() {
     shadowColor: '#000000',
     shadowBlur: 0,
     fontSize: 44,
-    fontFamily: 'Abhaya Libre',
+    fontFamily: 'Sinhala Sangam MN',
     gradientEnabled: false,
     gradientStart: '#ffffff',
     gradientEnd: '#ffffff',
     animationPreset: 'fade-in',
-    highlightColor: '#ffffff',
+    highlightColor: '#facc15',
     backgroundCardEnabled: false,
     highlightEnabled: false,
     positionX: 50,
@@ -201,7 +201,15 @@ export default function App() {
       const contentType = res.headers.get('content-type');
       if (!contentType || !contentType.includes('application/json')) {
         const text = await res.text();
-        throw new Error(`Invalid response format from server (expected JSON, got ${contentType}).`);
+        let detail = text.slice(0, 150).trim();
+        if (text.includes("<title>")) {
+          const titleMatch = text.match(/<title>([^<]+)<\/title>/i);
+          if (titleMatch) detail = `Page Title: "${titleMatch[1].trim()}"`;
+        } else if (text.includes("<h1>")) {
+          const h1Match = text.match(/<h1>([^<]+)<\/h1>/i);
+          if (h1Match) detail = `Header: "${h1Match[1].trim()}"`;
+        }
+        throw new Error(`Invalid response format from server (expected JSON, got ${contentType}). Detail: ${detail}`);
       }
 
       const data = await res.json();
@@ -365,7 +373,15 @@ export default function App() {
       const contentType = res.headers.get('content-type');
       if (!contentType || !contentType.includes('application/json')) {
         const text = await res.text();
-        throw new Error(`Invalid response format from server (expected JSON, got ${contentType}).`);
+        let detail = text.slice(0, 150).trim();
+        if (text.includes("<title>")) {
+          const titleMatch = text.match(/<title>([^<]+)<\/title>/i);
+          if (titleMatch) detail = `Page Title: "${titleMatch[1].trim()}"`;
+        } else if (text.includes("<h1>")) {
+          const h1Match = text.match(/<h1>([^<]+)<\/h1>/i);
+          if (h1Match) detail = `Header: "${h1Match[1].trim()}"`;
+        }
+        throw new Error(`Invalid response format from server (expected JSON, got ${contentType}). Detail: ${detail}`);
       }
 
       const data = await res.json();

@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState } from 'react';
 import { Play, Pause, Upload, Volume2, Maximize, RefreshCw, Layers, AlertCircle } from 'lucide-react';
 import { CaptionSegment, StyleConfig, FONT_PRESETS, FontPreset } from '../types';
 import { convertToLegacySafe } from '../utils/legacyConverter';
+import { drawCaptionFrame } from '../utils/canvasRenderer';
 
 interface VideoPlayerProps {
   videoUrl: string | null;
@@ -40,6 +41,7 @@ export default function VideoPlayer({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const captionRef = useRef<HTMLDivElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [localDuration, setLocalDuration] = useState(0);
@@ -198,6 +200,18 @@ export default function VideoPlayer({
           setPrevSegment(activeSegment);
           setActiveSegment(null);
         }
+
+        // Real-time canvas rendering matching export
+        const canvas = canvasRef.current;
+        if (canvas) {
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if (active) {
+              drawCaptionFrame(ctx, active, styleConfig, currentMs, isLegacy);
+            }
+          }
+        }
       }
       rafId = requestAnimationFrame(updateTimeLoop);
     };
@@ -214,12 +228,47 @@ export default function VideoPlayer({
       } else {
         setActiveSegment(null);
       }
+
+      // Draw once on pause
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          if (active) {
+            drawCaptionFrame(ctx, active, styleConfig, currentMs, isLegacy);
+          }
+        }
+      }
     }
 
     return () => {
       cancelAnimationFrame(rafId);
     };
-  }, [isPlaying, segments, activeSegment, setCurrentTime]);
+  }, [isPlaying, segments, activeSegment, setCurrentTime, styleConfig, isLegacy]);
+
+  // Redraw helper for static property adjustments
+  const redrawCanvas = () => {
+    const canvas = canvasRef.current;
+    const video = videoRef.current;
+    if (!canvas || !video) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const currentMs = video.currentTime * 1000;
+    const active = segments.find(seg => currentMs >= seg.start && currentMs <= seg.end);
+    if (active) {
+      drawCaptionFrame(ctx, active, styleConfig, currentMs, isLegacy);
+    }
+  };
+
+  // Keep canvas in sync with non-playing updates (e.g. style change or manual seek)
+  useEffect(() => {
+    redrawCanvas();
+  }, [currentTime, styleConfig, videoRenderedWidth, videoRenderedHeight, isLegacy, segments]);
 
   // Synchronize playback basic details
   useEffect(() => {
@@ -432,18 +481,15 @@ export default function VideoPlayer({
   };
 
   // Pointer position drag mapping
-  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+  const handleCanvasPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (e.button !== 0) return; // Left pointer button only
     setIsDragging(true);
     e.currentTarget.setPointerCapture(e.pointerId);
   };
 
-  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+  const handleCanvasPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!isDragging || !onChangeStyle) return;
-    const overlayEl = e.currentTarget.parentElement?.parentElement;
-    if (!overlayEl) return;
-
-    const rect = overlayEl.getBoundingClientRect();
+    const rect = e.currentTarget.getBoundingClientRect();
     let x = ((e.clientX - rect.left) / rect.width) * 100;
     let y = ((e.clientY - rect.top) / rect.height) * 100;
 
@@ -457,7 +503,7 @@ export default function VideoPlayer({
     });
   };
 
-  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+  const handleCanvasPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
     setIsDragging(false);
     e.currentTarget.releasePointerCapture(e.pointerId);
   };
@@ -530,9 +576,9 @@ export default function VideoPlayer({
               </div>
             )}
 
-            {/* Subtitle Overlay Container (matches native video aspect bounds) */}
+            {/* Subtitle Overlay Canvas Container */}
             <div 
-              className="absolute pointer-events-none select-none z-20"
+              className="absolute pointer-events-none select-none z-20 overflow-hidden"
               style={{
                 left: `${videoRef.current ? (videoRef.current.clientWidth - videoRenderedWidth) / 2 : 0}px`,
                 top: `${videoRef.current ? (videoRef.current.clientHeight - videoRenderedHeight) / 2 : 0}px`,
@@ -540,81 +586,20 @@ export default function VideoPlayer({
                 height: `${videoRenderedHeight || '100%'}px`,
               }}
             >
-              {/* Centered Position Wrapper: prevents squeezing absolute bounds constraint on left/right edges */}
-              <div
-                className="absolute inset-x-0 pointer-events-none flex justify-center"
+              <canvas
+                ref={canvasRef}
+                width={videoRenderedWidth || 1280}
+                height={videoRenderedHeight || 720}
                 style={{
-                  top: `${posY}%`,
-                  transform: 'translateY(-50%)',
+                  width: `${videoRenderedWidth || '100%'}px`,
+                  height: `${videoRenderedHeight || '100%'}px`,
+                  pointerEvents: 'auto',
+                  cursor: isDragging ? 'grabbing' : 'grab',
                 }}
-              >
-                {/* Draggable Subtitle Element */}
-                <div 
-                  ref={captionRef}
-                  onPointerDown={handlePointerDown}
-                  onPointerMove={handlePointerMove}
-                  onPointerUp={handlePointerUp}
-                  className="transition-shadow rounded-lg px-4 py-2 text-center pointer-events-auto touch-none select-none"
-                  style={{ 
-                    transform: `translateX(${posX - 50}%)`,
-                    cursor: isDragging ? 'grabbing' : 'grab',
-                    width: 'max-content',
-                    maxWidth: '90%',
-                    overflowWrap: 'normal',
-                    wordBreak: 'normal',
-                    whiteSpace: 'normal',
-                    backgroundColor: (styleConfig.backgroundCardEnabled !== false && activeSegment) ? styleConfig.backgroundColor : 'transparent',
-                    boxShadow: isDragging ? '0 20px 25px -5px rgb(0 0 0 / 0.5)' : 'none',
-                    border: isDragging ? '1px dashed rgba(139, 92, 246, 0.4)' : 'none',
-                  }}
-                >
-                {/* Dual-state render: active and previous caption words */}
-                {styleConfig.animationPreset === 'apple-keynote' ? (
-                  <div className="relative flex flex-col items-center justify-center">
-                    {/* Previous Fade Out Word */}
-                    {prevSegment && !activeSegment && (
-                      <span 
-                        className="absolute text-slate-600/40 transform scale-75 opacity-0 transition-all duration-150 line-clamp-1"
-                        style={{ fontFamily: styleConfig.fontFamily, fontSize: `${styleConfig.fontSize * 0.8 * autoScale}px` }}
-                      >
-                        {formatText(prevSegment.text)}
-                      </span>
-                    )}
-                    {/* Active Pop-Up Kinetic Word */}
-                    {activeSegment && (
-                      <span 
-                        key={activeSegment.id}
-                        className="animate-apple-keynote inline-block transform"
-                        style={getSubtitleStyle()}
-                      >
-                        {renderHighlightedSegmentText(activeSegment)}
-                      </span>
-                    )}
-                  </div>
-                ) : (
-                  // Other 9 customized animation transitions
-                  activeSegment && (
-                    <span
-                      key={activeSegment.id}
-                      className={`inline-block font-bold tracking-wide ${
-                        styleConfig.animationPreset === 'bounce' ? 'animate-caption-bounce' :
-                        styleConfig.animationPreset === 'fade-in' ? 'animate-caption-fade' :
-                        styleConfig.animationPreset === 'pop' ? 'animate-caption-pop' :
-                        styleConfig.animationPreset === 'slide-up' ? 'animate-caption-slide' :
-                        styleConfig.animationPreset === 'kinetic-zoom' ? 'animate-caption-zoom' :
-                        styleConfig.animationPreset === 'shake' ? 'animate-caption-shake' :
-                        styleConfig.animationPreset === 'neon-glow' ? 'animate-caption-neon' :
-                        styleConfig.animationPreset === 'karaoke-fill' ? 'animate-caption-karaoke' :
-                        styleConfig.animationPreset === 'glitch' ? 'animate-caption-glitch' : ''
-                      }`}
-                      style={getSubtitleStyle()}
-                    >
-                      {renderHighlightedSegmentText(activeSegment)}
-                    </span>
-                  )
-                )}
-              </div>
-              </div>
+                onPointerDown={handleCanvasPointerDown}
+                onPointerMove={handleCanvasPointerMove}
+                onPointerUp={handleCanvasPointerUp}
+              />
             </div>
 
           </div>

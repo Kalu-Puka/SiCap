@@ -319,7 +319,7 @@ function convertToLegacy(text: string, fontFamily: string): string {
 
 // Helper to generate ASS subtitle content
 function generateAssSubtitles(segments: any[], style: any, playResX = 1280, playResY = 720, customIsLegacy?: boolean): string {
-  const fontFamily = style.fontFamily || 'Abhaya Libre';
+  const fontFamily = style.fontFamily || 'Sinhala Sangam MN';
   const fontSize = style.fontSize !== undefined ? style.fontSize : 44;
   const strokeWidth = style.strokeWidth !== undefined ? style.strokeWidth : 3;
   const shadowBlur = style.shadowBlur !== undefined ? style.shadowBlur : 0;
@@ -710,6 +710,7 @@ app.post('/api/transcribe', upload.single('video'), async (req, res) => {
           { text: prompt }
         ],
         config: {
+          temperature: 0,
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.ARRAY,
@@ -968,7 +969,7 @@ async function bootstrap() {
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*all', (req, res) => {
+    app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
